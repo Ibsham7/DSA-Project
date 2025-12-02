@@ -1,0 +1,38 @@
+{
+  "nodes": [
+    {"id": "Downtown_Plaza", "x": 3, "y": 5},
+    {"id": "City_Hall", "x": 5, "y": 5},
+    {"id": "Central_Station", "x": 7, "y": 5},
+    {"id": "University", "x": 2, "y": 7},
+    {"id": "Hospital", "x": 5, "y": 7},
+    {"id": "Airport", "x": 8, "y": 7},
+    {"id": "Park", "x": 1, "y": 3},
+    {"id": "Mall", "x": 4, "y": 3},
+    {"id": "Stadium", "x": 7, "y": 3},
+    {"id": "Harbor", "x": 9, "y": 1},
+    {"id": "Beach", "x": 6, "y": 1},
+    {"id": "Museum", "x": 3, "y": 1}
+  ],
+  "edges": [
+    {"from": "Downtown_Plaza", "to": "City_Hall", "distance": 2, "allowed_modes": ["car","bicycle","pedestrian"], "one_way": false},
+    {"from": "City_Hall", "to": "Central_Station", "distance": 2, "allowed_modes": ["car","bicycle","pedestrian"], "one_way": false},
+    {"from": "Downtown_Plaza", "to": "University", "distance": 2.5, "allowed_modes": ["car","bicycle","pedestrian"], "one_way": false},
+    {"from": "City_Hall", "to": "Hospital", "distance": 2, "allowed_modes": ["car","bicycle","pedestrian"], "one_way": false},
+    {"from": "Central_Station", "to": "Airport", "distance": 2.5, "allowed_modes": ["car"], "one_way": false},
+    {"from": "University", "to": "Hospital", "distance": 3, "allowed_modes": ["bicycle","pedestrian"], "one_way": false},
+    {"from": "Hospital", "to": "Airport", "distance": 3, "allowed_modes": ["car","bicycle"], "one_way": false},
+    {"from": "Park", "to": "Downtown_Plaza", "distance": 2.5, "allowed_modes": ["bicycle","pedestrian"], "one_way": false},
+    {"from": "Downtown_Plaza", "to": "Mall", "distance": 2, "allowed_modes": ["car","bicycle","pedestrian"], "one_way": false},
+    {"from": "Mall", "to": "City_Hall", "distance": 1.5, "allowed_modes": ["car","bicycle","pedestrian"], "one_way": false},
+    {"from": "City_Hall", "to": "Stadium", "distance": 3, "allowed_modes": ["car","bicycle"], "one_way": false},
+    {"from": "Central_Station", "to": "Stadium", "distance": 2, "allowed_modes": ["car","bicycle","pedestrian"], "one_way": false},
+    {"from": "Stadium", "to": "Airport", "distance": 4, "allowed_modes": ["car"], "one_way": false},
+    {"from": "Museum", "to": "Mall", "distance": 2, "allowed_modes": ["bicycle","pedestrian"], "one_way": false},
+    {"from": "Beach", "to": "Mall", "distance": 2.5, "allowed_modes": ["car","bicycle","pedestrian"], "one_way": false},
+    {"from": "Beach", "to": "Stadium", "distance": 1.5, "allowed_modes": ["car","bicycle"], "one_way": false},
+    {"from": "Beach", "to": "Harbor", "distance": 3, "allowed_modes": ["car","bicycle","pedestrian"], "one_way": false},
+    {"from": "Stadium", "to": "Harbor", "distance": 3, "allowed_modes": ["car"], "one_way": true},
+    {"from": "Park", "to": "Museum", "distance": 2.5, "allowed_modes": ["bicycle","pedestrian"], "one_way": false},
+    {"from": "University", "to": "Park", "distance": 2, "allowed_modes": ["bicycle","pedestrian"], "one_way": false}
+  ]
+}

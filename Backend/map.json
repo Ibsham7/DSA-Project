@@ -1,0 +1,27 @@
+{
+  "nodes": [
+    {"id": "A", "x": 0, "y": 0},
+    {"id": "B", "x": 2, "y": 1},
+    {"id": "C", "x": 4, "y": 0},
+    {"id": "D", "x": 5, "y": 3},
+    {"id": "E", "x": 3, "y": 4},
+    {"id": "F", "x": 6, "y": 1},
+    {"id": "G", "x": 7, "y": 4},
+    {"id": "H", "x": 2, "y": 6},
+    {"id": "I", "x": 5, "y": 6}
+  ],
+  "edges": [
+    {"from": "A", "to": "B", "distance": 2, "allowed_modes": ["car","bicycle"], "one_way": false},
+    {"from": "B", "to": "C", "distance": 2.5, "allowed_modes": ["car"], "one_way": false},
+    {"from": "B", "to": "E", "distance": 3, "allowed_modes": ["bicycle","pedestrian"], "one_way": false},
+    {"from": "C", "to": "D", "distance": 3, "allowed_modes": ["car","bicycle"], "one_way": true},
+    {"from": "E", "to": "D", "distance": 2, "allowed_modes": ["pedestrian"], "one_way": false},
+    {"from": "A", "to": "E", "distance": 5, "allowed_modes": ["car","bicycle","pedestrian"], "one_way": false},
+    {"from": "C", "to": "F", "distance": 1.5, "allowed_modes": ["car"], "one_way": false},
+    {"from": "F", "to": "G", "distance": 3, "allowed_modes": ["car","bicycle"], "one_way": false},
+    {"from": "E", "to": "H", "distance": 2.5, "allowed_modes": ["bicycle","pedestrian"], "one_way": false},
+    {"from": "H", "to": "I", "distance": 2, "allowed_modes": ["bicycle","pedestrian"], "one_way": false},
+    {"from": "G", "to": "I", "distance": 2.5, "allowed_modes": ["car","bicycle"], "one_way": false},
+    {"from": "D", "to": "G", "distance": 2, "allowed_modes": ["car","bicycle"], "one_way": false}
+  ]
+}
