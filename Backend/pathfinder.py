@@ -6,7 +6,10 @@ import config
 def euclidean_distance(a, b):
     return math.sqrt((a[0]-b[0])**2 + (a[1]-b[1])**2)
 
-def a_star(graph, heuristic_coords, traffic_multipliers, start, goal, mode):
+def a_star(graph, heuristic_coords, traffic_multipliers, start, goal, mode, blocked_roads=None):
+    if blocked_roads is None:
+        blocked_roads = set()
+    
     open_set = []
     heapq.heappush(open_set, (0, start))
     came_from = {}
@@ -35,6 +38,11 @@ def a_star(graph, heuristic_coords, traffic_multipliers, start, goal, mode):
                 continue
 
             neighbor = edge["to"]
+            
+            # Skip blocked roads completely
+            if (current, neighbor) in blocked_roads:
+                continue
+            
             base_cost = edge["distance"]
             multiplier = traffic_multipliers.get((current, neighbor), config.DEFAULT_TRAFFIC_MULTIPLIER)
             tentative_g = g_score[current] + base_cost * multiplier

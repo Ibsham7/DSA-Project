@@ -1,16 +1,9 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState } from 'react';
 import { GraphData, Vehicle, EdgeTrafficData, getCongestionColor, VEHICLE_EMOJI, Accident, BlockedRoad } from '@/lib/types';
 import VehicleMarker from './VehicleMarker';
 import VehicleDetailsTooltip from './VehicleDetailsTooltip';
-
-// Smooth position tracking for each vehicle to eliminate jitter
-interface SmoothedPosition {
-  edgeKey: string;          // "currentNode-nextNode" to detect edge changes
-  smoothedProgress: number; // EMA-smoothed position (0.0 to 1.0)
-  lastUpdate: number;       // Timestamp of last update
-}
 
 interface MultiVehicleMapVisualizationProps {
   vehicles: Vehicle[];
@@ -37,9 +30,6 @@ const MultiVehicleMapVisualization: React.FC<MultiVehicleMapVisualizationProps> 
   const [panPosition, setPanPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  
-  // Smooth position tracking to eliminate jumping/jitter at all speeds
-  const smoothedPositions = useRef<Map<string, SmoothedPosition>>(new Map());
   
   const handleZoomIn = () => setZoomLevel(prev => Math.min(prev + 0.2, 3));
   const handleZoomOut = () => setZoomLevel(prev => Math.max(prev - 0.2, 0.5));
@@ -110,7 +100,7 @@ const MultiVehicleMapVisualization: React.FC<MultiVehicleMapVisualizationProps> 
   };
 
   // Get curve control point for realistic roads with better separation
-  const getCurveOffset = (from: string, to: string, x1: number, y1: number, x2: number, y2: number) => {
+  const getCurveOffset = (from: string, to: string, x1: number, y1: number, x2: number, y2: number, edgeIndex: number) => {
     const dx = x2 - x1;
     const dy = y2 - y1;
     const length = Math.sqrt(dx * dx + dy * dy);
@@ -140,10 +130,7 @@ const MultiVehicleMapVisualization: React.FC<MultiVehicleMapVisualizationProps> 
     } else {
       // Single direction - add slight curve for visual appeal
       const baseOffset = Math.min(length * 0.12, 40);
-      // Use consistent hash-based variation instead of edgeIndex
-      const edgeKey = `${from}-${to}`;
-      const hash = edgeKey.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-      const variation = ((hash % 5) - 2) * 0.3; // Consistent variation based on edge names
+      const variation = ((edgeIndex % 5) - 2) * 0.3; // Smaller variation
       const offsetAmount = baseOffset * variation;
       
       return {
@@ -204,8 +191,7 @@ const MultiVehicleMapVisualization: React.FC<MultiVehicleMapVisualizationProps> 
       .map((vehicle, index) => ({ vehicle, queuePosition: index }));
   };
 
-  // Calculate vehicle position with exponential smoothing to eliminate jitter
-  // This approach is ROBUST - it won't break with roadblocks, accidents, or any future features
+  // Calculate vehicle position on road using physics-based position from backend
   const calculateVehiclePosition = (vehicle: Vehicle) => {
     const currentNodeData = mapData.nodes.find(n => n.id === vehicle.current_node);
     const nextNodeData = vehicle.next_node ? mapData.nodes.find(n => n.id === vehicle.next_node) : null;
@@ -213,15 +199,18 @@ const MultiVehicleMapVisualization: React.FC<MultiVehicleMapVisualizationProps> 
     if (!currentNodeData) return null;
 
     // If no next node, vehicle is at current node
-    if (!nextNodeData || !vehicle.next_node) {
-      // Clear smoothing for this vehicle
-      smoothedPositions.current.delete(vehicle.id);
+    if (!nextNodeData) {
       return {
         x: scaleX(currentNodeData.x),
         y: scaleY(currentNodeData.y)
       };
     }
 
+    // Get edge index for curve matching
+    const edgeIndex = mapData.edges.findIndex(
+      e => e.from === vehicle.current_node && e.to === vehicle.next_node
+    );
+    
     // Scale node positions
     const x1 = scaleX(currentNodeData.x);
     const y1 = scaleY(currentNodeData.y);
@@ -229,46 +218,13 @@ const MultiVehicleMapVisualization: React.FC<MultiVehicleMapVisualizationProps> 
     const y2 = scaleY(nextNodeData.y);
     
     // Get the curve control point (same as the road)
-    const curve = getCurveOffset(vehicle.current_node, vehicle.next_node, x1, y1, x2, y2);
+    const curve = getCurveOffset(vehicle.current_node, nextNodeData.id, x1, y1, x2, y2, edgeIndex >= 0 ? edgeIndex : 0);
     
-    // Get backend physics position (0.0 to 1.0)
-    const backendProgress = vehicle.position_on_edge || 0.0;
-    const edgeKey = `${vehicle.current_node}-${vehicle.next_node}`;
-    const now = Date.now();
+    // Use the EXACT physics-based position from backend (0.0 to 1.0 along edge)
+    // This is calculated by the backend with proper acceleration, deceleration, and following distance
+    const progress = vehicle.position_on_edge || 0.0;
     
-    // Get or initialize smoothed position for this vehicle
-    let smoothedData = smoothedPositions.current.get(vehicle.id);
-    
-    // Detect edge change (vehicle moved to new edge) - reset smoothing
-    if (!smoothedData || smoothedData.edgeKey !== edgeKey) {
-      smoothedData = {
-        edgeKey,
-        smoothedProgress: backendProgress,
-        lastUpdate: now
-      };
-      smoothedPositions.current.set(vehicle.id, smoothedData);
-    } else {
-      // Apply exponential moving average (EMA) for smooth interpolation
-      // Alpha determines smoothing strength: lower = smoother, higher = more responsive
-      // Use speed-adaptive alpha: slower speeds need more smoothing
-      const speed = vehicle.current_speed || 0;
-      const baseAlpha = 0.3;  // Base smoothing factor
-      
-      // Increase smoothing (lower alpha) at low speeds where jitter is visible
-      // At 0 px/s: alpha = 0.1 (heavy smoothing)
-      // At 10+ px/s: alpha = 0.3 (normal smoothing)
-      const speedFactor = Math.min(speed / 10, 1.0);
-      const alpha = 0.1 + (baseAlpha - 0.1) * speedFactor;
-      
-      // EMA formula: smoothed = alpha * new + (1 - alpha) * previous
-      smoothedData.smoothedProgress = alpha * backendProgress + (1 - alpha) * smoothedData.smoothedProgress;
-      smoothedData.lastUpdate = now;
-    }
-    
-    // Use smoothed progress for rendering
-    const progress = Math.min(Math.max(smoothedData.smoothedProgress, 0), 1);
-    
-    // Calculate position on bezier curve
+    // Calculate exact position on the quadratic bezier curve
     const point = getPointOnCurve(x1, y1, curve.cx, curve.cy, x2, y2, progress);
     
     return {
@@ -384,7 +340,7 @@ const MultiVehicleMapVisualization: React.FC<MultiVehicleMapVisualizationProps> 
               
               const vehicleCount = getEdgeVehicleCount(edge.from, edge.to);
 
-              const curve = getCurveOffset(edge.from, edge.to, x1, y1, x2, y2);
+              const curve = getCurveOffset(edge.from, edge.to, x1, y1, x2, y2, idx);
               const pathD = `M ${x1} ${y1} Q ${curve.cx} ${curve.cy} ${x2} ${y2}`;
 
               return (
@@ -616,7 +572,11 @@ const MultiVehicleMapVisualization: React.FC<MultiVehicleMapVisualizationProps> 
                         const x2 = scaleX(toNodeData.x);
                         const y2 = scaleY(toNodeData.y);
 
-                        const curve = getCurveOffset(nodeId, vehicle.path[pathIdx + 1], x1, y1, x2, y2);
+                        const edgeIdx = mapData.edges.findIndex(
+                          e => e.from === nodeId && e.to === vehicle.path[pathIdx + 1]
+                        );
+
+                        const curve = getCurveOffset(nodeId, vehicle.path[pathIdx + 1], x1, y1, x2, y2, edgeIdx >= 0 ? edgeIdx : pathIdx);
                         const pathD = `M ${x1} ${y1} Q ${curve.cx} ${curve.cy} ${x2} ${y2}`;
 
                         // Determine if this is the current edge
@@ -729,12 +689,7 @@ const MultiVehicleMapVisualization: React.FC<MultiVehicleMapVisualizationProps> 
                       setHoveredVehicle(null);
                       setTooltipPosition(null);
                     }}
-                    style={{ 
-                      cursor: 'pointer',
-                      // GPU acceleration for smoother rendering
-                      transform: 'translate3d(0, 0, 0)',
-                      willChange: 'transform'
-                    }}
+                    style={{ cursor: 'pointer' }}
                   >
                     {/* Larger invisible hitbox for easier hover */}
                     <circle

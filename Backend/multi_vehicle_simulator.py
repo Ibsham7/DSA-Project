@@ -230,7 +230,8 @@ class MultiVehicleSimulator:
             self.traffic_multipliers,
             start_node,
             goal_node,
-            mode
+            mode,
+            blocked_roads=set(self.blocked_roads.keys())
         )
         
         if path:
@@ -347,7 +348,8 @@ class MultiVehicleSimulator:
             self.traffic_multipliers,
             vehicle.current_node,
             vehicle.goal_node,
-            mode
+            mode,
+            blocked_roads=set(self.blocked_roads.keys())
         )
         
         if new_path and new_path != vehicle.path[vehicle.path_index:]:
@@ -398,18 +400,13 @@ class MultiVehicleSimulator:
         # Update traffic based on current vehicle positions and time
         self.traffic_analyzer.update_traffic_multipliers(self.traffic_multipliers)
         
-        # Apply time-based congestion on hotspots - INFREQUENTLY to avoid jitter
-        # Only update hotspot congestion every 30th step for stability
-        if self.simulation_step % 30 == 0:
-            for edge in self.congestion_points:
-                if edge in self.traffic_multipliers and congestion_factor > 0.3:
-                    # Gradually increase congestion on hotspots
-                    base_multiplier = self.traffic_multipliers[edge]
-                    time_penalty = 1.0 + (congestion_factor * random.uniform(0.5, 2.0))
-                    new_multiplier = min(base_multiplier * time_penalty, 5.0)
-                    
-                    # Smooth the change - exponential moving average (alpha = 0.3)
-                    self.traffic_multipliers[edge] = base_multiplier * 0.7 + new_multiplier * 0.3
+        # Apply time-based congestion on hotspots
+        for edge in self.congestion_points:
+            if edge in self.traffic_multipliers and congestion_factor > 0.3:
+                # Gradually increase congestion on hotspots
+                base_multiplier = self.traffic_multipliers[edge]
+                time_penalty = 1.0 + (congestion_factor * random.uniform(0.5, 2.0))
+                self.traffic_multipliers[edge] = min(base_multiplier * time_penalty, 5.0)
         
         # Get all active vehicles
         active_vehicles = self.vehicle_manager.get_active_vehicles()
@@ -463,51 +460,9 @@ class MultiVehicleSimulator:
             if ahead_vehicle:
                 vehicle.slow_down_for_vehicle_ahead(min_distance)
             else:
-                # No vehicle ahead - apply traffic congestion effects
-                # Get traffic multiplier for this edge
-                traffic_multiplier = self.traffic_multipliers.get(edge, 1.0)
-                
-                # Calculate ideal speed based on traffic conditions
-                if traffic_multiplier > 1.0:
-                    # Congested - reduce speed proportionally
-                    speed_factor = 1.0 / traffic_multiplier
-                    ideal_speed = vehicle.speed_multiplier * max(speed_factor, 0.2)
-                else:
-                    # Clear - use full speed
-                    ideal_speed = vehicle.speed_multiplier
-                
-                # CRITICAL FIX FOR JUMPING AT LOW SPEEDS:
-                # DO NOT adjust target_speed if current_speed < 10 px/s (updated for new speed scale)
-                # This prevents interference during acceleration phase
-                
-                if vehicle.current_speed < 10.0:
-                    # Low speed - don't interfere, let vehicle accelerate naturally
-                    # Only set initial target if it's not already set correctly
-                    if vehicle.target_speed < vehicle.speed_multiplier * 0.9:
-                        vehicle.target_speed = vehicle.speed_multiplier
-                else:
-                    # High speed (>= 10 px/s) - safe to apply traffic control
-                    speed_diff = ideal_speed - vehicle.target_speed
-                    
-                    # Large deadband (2.0 px/s) to prevent oscillation (scaled for new speeds)
-                    if abs(speed_diff) > 2.0:
-                        # Significant change - adjust very slowly
-                        if speed_diff > 0:
-                            vehicle.target_speed = min(vehicle.target_speed + 0.1, ideal_speed)
-                        else:
-                            vehicle.target_speed = max(ideal_speed, vehicle.target_speed - 0.1)
-                    elif abs(speed_diff) > 0.5:
-                        # Medium change - adjust a bit faster
-                        if speed_diff > 0:
-                            vehicle.target_speed = min(vehicle.target_speed + 0.2, ideal_speed)
-                        else:
-                            vehicle.target_speed = max(ideal_speed, vehicle.target_speed - 0.2)
-                    # else: small difference, don't adjust
-                
-                # Update stuck status conservatively (scaled thresholds)
-                if traffic_multiplier > 3.0 and vehicle.current_speed < 1.0:
-                    vehicle.status = VehicleStatus.STUCK
-                elif vehicle.status == VehicleStatus.STUCK and vehicle.current_speed > 3.0:
+                # No vehicle ahead, resume normal speed (considering congestion)
+                if vehicle.status == VehicleStatus.STUCK:
+                    vehicle.target_speed = vehicle.speed_multiplier
                     vehicle.status = VehicleStatus.MOVING
         
         # Second pass: Update positions

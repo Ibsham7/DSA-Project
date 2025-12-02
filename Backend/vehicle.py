@@ -32,11 +32,10 @@ class Vehicle:
     """
     
     # Vehicle speed multipliers (pixels per second in ideal conditions)
-    # Reduced to realistic speeds for proper simulation pacing
     SPEED_MULTIPLIERS = {
-        VehicleType.CAR: 30.0,        # 30 pixels/sec (realistic speed)
-        VehicleType.BIKE: 20.0,       # 20 pixels/sec
-        VehicleType.PEDESTRIAN: 10.0  # 10 pixels/sec
+        VehicleType.CAR: 60.0,        # 60 pixels/sec
+        VehicleType.BIKE: 40.0,       # 40 pixels/sec
+        VehicleType.PEDESTRIAN: 20.0  # 20 pixels/sec
     }
     
     # Vehicle capacity (how much space they occupy on an edge)
@@ -84,7 +83,7 @@ class Vehicle:
         self.position_on_edge = 0.0  # 0.0 to 1.0 along current edge
         self.current_speed = 0.0     # Current speed (can be reduced by traffic)
         self.target_speed = self.speed_multiplier  # Desired speed
-        self.acceleration = 1.5      # Smooth acceleration (px/s²) - realistic gradual acceleration
+        self.acceleration = 0.2      # How quickly speed changes
         self.wait_time = 0.0  # Time spent waiting in traffic
         self.reroute_count = 0
         
@@ -145,10 +144,8 @@ class Vehicle:
         if self.status != VehicleStatus.MOVING and self.status != VehicleStatus.STUCK:
             return False
         
-        # Accelerate/decelerate toward target speed with smooth damping
+        # Accelerate/decelerate toward target speed
         speed_diff = self.target_speed - self.current_speed
-        
-        # Smooth acceleration - don't overshoot target
         if abs(speed_diff) < self.acceleration * delta_time:
             self.current_speed = self.target_speed
         elif speed_diff > 0:
@@ -156,8 +153,7 @@ class Vehicle:
         else:
             self.current_speed -= self.acceleration * delta_time
         
-        # Update position based on current speed - no threshold needed
-        # Frontend handles smoothing for rendering, backend calculates true physics
+        # Update position based on current speed
         distance_moved = self.current_speed * delta_time
         self.position_on_edge += distance_moved / edge_length
         

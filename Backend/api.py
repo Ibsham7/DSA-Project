@@ -64,7 +64,8 @@ def get_path(start: str, goal: str, mode: str):
         traffic_multipliers,
         start,
         goal,
-        mode
+        mode,
+        blocked_roads=set(simulator.blocked_roads.keys())
     )
 
     # Handle infinity cost (no path found)
