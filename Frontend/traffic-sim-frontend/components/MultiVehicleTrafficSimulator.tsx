@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import MultiVehicleMapVisualization from './MultiVehicleMapVisualization';
 import TrafficStatsDashboard from './TrafficStatsDashboard';
 import TrafficControlPanel from './TrafficControlPanel';
+import SpeedDistributionChart from './SpeedDistributionChart';
 import { api } from '@/lib/api';
 import { 
   Vehicle, 
@@ -31,6 +32,21 @@ const MultiVehicleTrafficSimulator: React.FC = () => {
   const [accidents, setAccidents] = useState<Accident[]>([]);
   const [blockedRoads, setBlockedRoads] = useState<BlockedRoad[]>([]);
   const [simulationInfo, setSimulationInfo] = useState<SimulationInfo | null>(null);
+  const [trafficConfig, setTrafficConfig] = useState<{
+    current_hour: number;
+    current_minute: number;
+    time_string: string;
+    time_period: string;
+    time_scale: number;
+    speed_distribution: {
+      car: { mean: number; std_dev: number; min: number; max: number };
+      bicycle: { mean: number; std_dev: number; min: number; max: number };
+      pedestrian: { mean: number; std_dev: number; min: number; max: number };
+    };
+    vehicle_distribution: Record<string, number>;
+    spawn_rate: { vehicles_per_minute_mean: number; vehicles_per_minute_std_dev: number };
+    congestion: { mean: number; std_dev: number; peak_hours: number[] };
+  } | null>(null);
   
   // UI state
   const [isRunning, setIsRunning] = useState(false);
@@ -42,15 +58,10 @@ const MultiVehicleTrafficSimulator: React.FC = () => {
   const [mapData, setMapData] = useState(MAPS.city);
   const [highlightedVehicle, setHighlightedVehicle] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  
-  // Spawn settings - Increased for more chaotic traffic
-  const [vehicleCount, setVehicleCount] = useState(25);
-  const [carProbability, setCarProbability] = useState(60);
-  const [bikeProbability, setBikeProbability] = useState(25);
-  const [pedestrianProbability, setPedestrianProbability] = useState(15);
+  const [activeTab, setActiveTab] = useState<'map' | 'distribution'>('map');
   
   // Auto-simulation - Much faster updates for smooth CCTV-like movement
-  const [autoSpawn, setAutoSpawn] = useState(true);
+  // Backend now handles auto-spawning based on real dataset config
   const [simulationSpeed, setSimulationSpeed] = useState(100); // ms between ticks - 10 FPS for smooth animation (25-500ms range = 40-2 FPS)
 
   // Initialize
@@ -69,19 +80,9 @@ const MultiVehicleTrafficSimulator: React.FC = () => {
         
         // Get initial state
         await refreshSimulationState();
+        await refreshTrafficControlData();
         
-        // Auto-spawn initial vehicles for immediate traffic
-        setTimeout(async () => {
-          if (apiStatus === 'connected') {
-            const distribution = {
-              car: 0.6,
-              bicycle: 0.25,
-              pedestrian: 0.15,
-            };
-            await api.spawnMultipleVehicles(25, distribution);
-            await refreshSimulationState();
-          }
-        }, 1000);
+        // No manual spawn needed - backend auto-spawns based on real dataset config
       } catch (err) {
         setApiStatus('disconnected');
         setError('Failed to connect to backend API. Make sure the server is running on http://localhost:8000');
@@ -97,22 +98,15 @@ const MultiVehicleTrafficSimulator: React.FC = () => {
 
     const interval = setInterval(async () => {
       try {
-        // Execute simulation tick
+        // Execute simulation tick - backend handles auto-spawning based on config
         await api.simulationTick();
         
         // Refresh state and traffic control data
         await refreshSimulationState();
         await refreshTrafficControlData();
         
-        // Auto-spawn new vehicles if enabled - spawn more for chaos
-        if (autoSpawn && vehicles.length < vehicleCount * 3) {
-          const distribution = {
-            car: carProbability / 100,
-            bicycle: bikeProbability / 100,
-            pedestrian: pedestrianProbability / 100,
-          };
-          await api.spawnMultipleVehicles(3, distribution);
-        }
+        // Backend now auto-spawns vehicles at 25/min (mean) based on real dataset
+        // No manual spawning needed here
       } catch (err) {
         console.error('Simulation tick failed:', err);
         setError('Simulation error occurred');
@@ -120,7 +114,7 @@ const MultiVehicleTrafficSimulator: React.FC = () => {
     }, simulationSpeed);
 
     return () => clearInterval(interval);
-  }, [isRunning, apiStatus, simulationSpeed, autoSpawn, vehicles.length, vehicleCount, carProbability, bikeProbability, pedestrianProbability]);
+  }, [isRunning, apiStatus, simulationSpeed]);
 
   // Refresh simulation state
   const refreshSimulationState = useCallback(async () => {
@@ -139,14 +133,16 @@ const MultiVehicleTrafficSimulator: React.FC = () => {
   // Refresh traffic control data (accidents, blocked roads, simulation info)
   const refreshTrafficControlData = useCallback(async () => {
     try {
-      const [accidentsData, blockedRoadsData, simInfoData] = await Promise.all([
+      const [accidentsData, blockedRoadsData, simInfoData, configData] = await Promise.all([
         api.getAccidents(),
         api.getBlockedRoads(),
         api.getSimulationInfo(),
+        api.getTrafficConfig(),
       ]);
       setAccidents(accidentsData.accidents);
       setBlockedRoads(blockedRoadsData.blocked_roads);
       setSimulationInfo(simInfoData);
+      setTrafficConfig(configData);
     } catch (err) {
       console.error('Failed to refresh traffic control data:', err);
     }
@@ -172,25 +168,7 @@ const MultiVehicleTrafficSimulator: React.FC = () => {
     }
   };
 
-  const handleSpawnVehicles = async () => {
-    setLoading(true);
-    setError('');
-    
-    try {
-      const distribution = {
-        car: carProbability / 100,
-        bicycle: bikeProbability / 100,
-        pedestrian: pedestrianProbability / 100,
-      };
-      
-      await api.spawnMultipleVehicles(vehicleCount, distribution);
-      await refreshSimulationState();
-    } catch (err) {
-      setError('Failed to spawn vehicles');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Removed manual spawn - backend now auto-spawns based on real dataset config
 
   const handleStartSimulation = () => {
     setIsRunning(true);
@@ -334,13 +312,13 @@ const MultiVehicleTrafficSimulator: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
+    <div className="min-h-screen bg-gray-900 flex flex-col">
       {/* Header with Statistics */}
-      <div className="bg-white border-b border-gray-200 shadow-sm">
+      <div className="bg-gray-800 border-b border-gray-700 shadow-lg">
         <div className="container mx-auto px-6 py-3">
           <div className="flex justify-between items-center mb-3">
             <div className="flex items-center gap-4">
-              <h1 className="text-2xl font-bold text-gray-800">Multi-Vehicle Traffic Simulator</h1>
+              <h1 className="text-2xl font-bold text-white">Multi-Vehicle Traffic Simulator</h1>
               <div className={`flex items-center gap-2 text-xs ${
                 apiStatus === 'connected' ? 'text-green-600' : 
                 apiStatus === 'disconnected' ? 'text-red-600' : 'text-yellow-600'
@@ -356,7 +334,7 @@ const MultiVehicleTrafficSimulator: React.FC = () => {
             <select
               value={currentMap}
               onChange={(e) => handleSwitchMap(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm font-semibold"
+              className="px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm font-semibold text-white"
               disabled={isRunning || loading}
             >
               {availableMaps.map((map) => (
@@ -369,30 +347,30 @@ const MultiVehicleTrafficSimulator: React.FC = () => {
 
           {/* Horizontal Statistics Bar */}
           {vehicleStats && trafficStats && (
-            <div className="grid grid-cols-6 gap-4 py-2 border-t border-gray-200">
+            <div className="grid grid-cols-6 gap-4 py-2 border-t border-gray-700">
               <div className="text-center">
-                <div className="text-xs text-gray-500">Step</div>
-                <div className="text-lg font-bold text-blue-600">{simulationState?.step || 0}</div>
+                <div className="text-xs text-gray-400">Step</div>
+                <div className="text-lg font-bold text-blue-400">{simulationState?.step || 0}</div>
               </div>
               <div className="text-center">
-                <div className="text-xs text-gray-500">Total Vehicles</div>
-                <div className="text-lg font-bold text-gray-800">{vehicleStats.total_vehicles}</div>
+                <div className="text-xs text-gray-400">Total Vehicles</div>
+                <div className="text-lg font-bold text-white">{vehicleStats.total_vehicles}</div>
               </div>
               <div className="text-center">
-                <div className="text-xs text-gray-500">Active</div>
-                <div className="text-lg font-bold text-green-600">{vehicleStats.active_vehicles}</div>
+                <div className="text-xs text-gray-400">Active</div>
+                <div className="text-lg font-bold text-green-400">{vehicleStats.active_vehicles}</div>
               </div>
               <div className="text-center">
-                <div className="text-xs text-gray-500">Arrived</div>
-                <div className="text-lg font-bold text-purple-600">{vehicleStats.arrived_vehicles}</div>
+                <div className="text-xs text-gray-400">Arrived</div>
+                <div className="text-lg font-bold text-purple-400">{vehicleStats.arrived_vehicles}</div>
               </div>
               <div className="text-center">
-                <div className="text-xs text-gray-500">Congestion</div>
-                <div className="text-lg font-bold text-orange-600">{(trafficStats.average_congestion_probability * 100).toFixed(0)}%</div>
+                <div className="text-xs text-gray-400">Congestion</div>
+                <div className="text-lg font-bold text-orange-400">{(trafficStats.average_congestion_probability * 100).toFixed(0)}%</div>
               </div>
               <div className="text-center">
-                <div className="text-xs text-gray-500">Bottlenecks</div>
-                <div className="text-lg font-bold text-red-600">{trafficStats.bottleneck_count}</div>
+                <div className="text-xs text-gray-400">Bottlenecks</div>
+                <div className="text-lg font-bold text-red-400">{trafficStats.bottleneck_count}</div>
               </div>
             </div>
           )}
@@ -402,7 +380,7 @@ const MultiVehicleTrafficSimulator: React.FC = () => {
       {/* Error Alert */}
       {error && (
         <div className="container mx-auto px-6 pt-4">
-          <div className="p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg flex items-center gap-2 text-sm">
+          <div className="p-3 bg-red-900/50 border border-red-600 text-red-300 rounded-lg flex items-center gap-2 text-sm">
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
             </svg>
@@ -413,28 +391,68 @@ const MultiVehicleTrafficSimulator: React.FC = () => {
 
       {/* Main Content - Map + Control Panel */}
       <div className="flex-1 container mx-auto px-6 py-6 flex gap-6">
-        {/* Map */}
-        <div className="flex-1 relative">
-          {/* Fullscreen button */}
-          <button
-            onClick={() => setIsFullscreen(true)}
-            className="absolute top-4 right-4 z-10 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 shadow-md text-sm font-medium text-gray-700 flex items-center gap-2"
-            title="Enter fullscreen mode"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-            </svg>
-            Fullscreen
-          </button>
-          
-          <MultiVehicleMapVisualization
-            vehicles={vehicles}
-            edgeTraffic={edgeTraffic}
-            mapData={mapData}
-            highlightedVehicle={highlightedVehicle}
-            accidents={accidents}
-            blockedRoads={blockedRoads}
-          />
+        {/* Map / Distribution View */}
+        <div className="flex-1 relative flex flex-col">
+          {/* Tab Navigation */}
+          <div className="flex gap-2 mb-4">
+            <button
+              onClick={() => setActiveTab('map')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
+                activeTab === 'map' 
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              }`}
+            >
+              🗺️ Map View
+            </button>
+            <button
+              onClick={() => setActiveTab('distribution')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
+                activeTab === 'distribution' 
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              }`}
+            >
+              📊 Speed Distribution
+            </button>
+          </div>
+
+          {/* Tab Content */}
+          <div className="flex-1">
+            {activeTab === 'map' ? (
+              <>
+                {/* Fullscreen button */}
+                <button
+                  onClick={() => setIsFullscreen(true)}
+                  className="absolute top-16 right-4 z-10 px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg hover:bg-gray-700 shadow-md text-sm font-medium text-gray-200 flex items-center gap-2"
+                  title="Enter fullscreen mode"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                  </svg>
+                  Fullscreen
+                </button>
+                
+                <MultiVehicleMapVisualization
+                  vehicles={vehicles}
+                  edgeTraffic={edgeTraffic}
+                  mapData={mapData}
+                  highlightedVehicle={highlightedVehicle}
+                  accidents={accidents}
+                  blockedRoads={blockedRoads}
+                />
+              </>
+            ) : (
+              trafficConfig && (
+                <div className="h-full overflow-auto">
+                  <SpeedDistributionChart
+                    speedConfig={trafficConfig.speed_distribution}
+                    liveSpeedStats={simulationState?.speed_distribution}
+                  />
+                </div>
+              )
+            )}
+          </div>
         </div>
 
         {/* Traffic Control Panel */}
@@ -453,87 +471,23 @@ const MultiVehicleTrafficSimulator: React.FC = () => {
       </div>
 
       {/* Bottom Control Panel */}
-      <div className="bg-white border-t-2 border-gray-300 shadow-2xl">
+      <div className="bg-gray-800 border-t-2 border-gray-700 shadow-2xl">
         <div className="container mx-auto px-6 py-4">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
             
-            {/* Spawn Controls */}
+            {/* Simulation Controls - Spawning now automatic based on real dataset */}
             <div>
-              <h3 className="text-sm font-bold text-gray-700 mb-3">🚗 Spawn Vehicles</h3>
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    Vehicle Count: {vehicleCount}
-                  </label>
-                  <input
-                    type="range"
-                    min="1"
-                    max="50"
-                    value={vehicleCount}
-                    onChange={(e) => setVehicleCount(Number(e.target.value))}
-                    className="w-full"
-                    disabled={isRunning}
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    🚗 Cars: {carProbability}%
-                  </label>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={carProbability}
-                    onChange={(e) => setCarProbability(Number(e.target.value))}
-                    className="w-full"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    🚴 Bikes: {bikeProbability}%
-                  </label>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={bikeProbability}
-                    onChange={(e) => setBikeProbability(Number(e.target.value))}
-                    className="w-full"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    🚶 Pedestrians: {pedestrianProbability}%
-                  </label>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={pedestrianProbability}
-                    onChange={(e) => setPedestrianProbability(Number(e.target.value))}
-                    className="w-full"
-                  />
-                </div>
-                
-                <button
-                  onClick={handleSpawnVehicles}
-                  disabled={loading || isRunning || apiStatus !== 'connected'}
-                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 text-sm font-medium"
-                >
-                  Spawn Vehicles
-                </button>
-              </div>
-            </div>
-
-            {/* Simulation Controls */}
-            <div>
-              <h3 className="text-sm font-bold text-gray-700 mb-3">⚙️ Simulation</h3>
+              <h3 className="text-sm font-bold text-gray-200 mb-3">⚙️ Simulation</h3>
               <div className="space-y-2">
+                <div className="p-2 bg-blue-900/50 rounded-lg mb-2">
+                  <p className="text-xs text-blue-300">
+                    🚗 Auto-spawning: 25 vehicles/min<br/>
+                    📊 Based on real traffic dataset
+                  </p>
+                </div>
+                
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                  <label className="block text-xs font-medium text-gray-400 mb-1">
                     Update Rate: {simulationSpeed}ms ({Math.round(1000/simulationSpeed)} FPS)
                   </label>
                   <input
@@ -545,30 +499,17 @@ const MultiVehicleTrafficSimulator: React.FC = () => {
                     onChange={(e) => setSimulationSpeed(Number(e.target.value))}
                     className="w-full"
                   />
-                  <div className="flex justify-between text-xs text-gray-500 mt-1">
+                  <div className="flex justify-between text-xs text-gray-400 mt-1">
                     <span>40 FPS</span>
                     <span>10 FPS</span>
                     <span>2 FPS</span>
                   </div>
                 </div>
                 
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="autoSpawn"
-                    checked={autoSpawn}
-                    onChange={(e) => setAutoSpawn(e.target.checked)}
-                    className="rounded"
-                  />
-                  <label htmlFor="autoSpawn" className="text-xs text-gray-600">
-                    Auto-spawn vehicles
-                  </label>
-                </div>
-                
                 {!isRunning ? (
                   <button
                     onClick={handleStartSimulation}
-                    disabled={loading || vehicles.length === 0 || apiStatus !== 'connected'}
+                    disabled={loading || apiStatus !== 'connected'}
                     className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 text-sm font-medium"
                   >
                     ▶ Start Simulation
@@ -600,9 +541,106 @@ const MultiVehicleTrafficSimulator: React.FC = () => {
               </div>
             </div>
 
+            {/* Speed Distribution Table */}
+            <div>
+              <h3 className="text-sm font-bold text-gray-200 mb-3">📊 Speed Config & Live Stats</h3>
+              {trafficConfig ? (
+                <div className="space-y-3">
+                  {/* Configured Speeds */}
+                  <div className="overflow-x-auto">
+                    <div className="text-xs text-gray-400 mb-1 font-semibold">Dataset Configuration:</div>
+                    <table className="w-full text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-gray-700">
+                          <th className="px-2 py-1 text-left font-semibold border border-gray-600 text-gray-200">Type</th>
+                          <th className="px-2 py-1 text-center font-semibold border border-gray-600 text-gray-200">Mean</th>
+                          <th className="px-2 py-1 text-center font-semibold border border-gray-600 text-gray-200">Std</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr className="hover:bg-blue-900/30">
+                          <td className="px-2 py-1 border border-gray-600 text-gray-300">🚗 Car</td>
+                          <td className="px-2 py-1 text-center border border-gray-600 text-gray-300">{trafficConfig.speed_distribution.car.mean}</td>
+                          <td className="px-2 py-1 text-center border border-gray-600 text-gray-300">{trafficConfig.speed_distribution.car.std_dev}</td>
+                        </tr>
+                        <tr className="hover:bg-green-900/30">
+                          <td className="px-2 py-1 border border-gray-600 text-gray-300">🚴 Bicycle</td>
+                          <td className="px-2 py-1 text-center border border-gray-600 text-gray-300">{trafficConfig.speed_distribution.bicycle.mean}</td>
+                          <td className="px-2 py-1 text-center border border-gray-600 text-gray-300">{trafficConfig.speed_distribution.bicycle.std_dev}</td>
+                        </tr>
+                        <tr className="hover:bg-yellow-900/30">
+                          <td className="px-2 py-1 border border-gray-600 text-gray-300">🚶 Pedestrian</td>
+                          <td className="px-2 py-1 text-center border border-gray-600 text-gray-300">{trafficConfig.speed_distribution.pedestrian.mean}</td>
+                          <td className="px-2 py-1 text-center border border-gray-600 text-gray-300">{trafficConfig.speed_distribution.pedestrian.std_dev}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  
+                  {/* Live Speed Stats */}
+                  {simulationState?.speed_distribution && (
+                    <div className="overflow-x-auto">
+                      <div className="text-xs text-gray-400 mb-1 font-semibold">Live Vehicle Speeds:</div>
+                      <table className="w-full text-xs border-collapse">
+                        <thead>
+                          <tr className="bg-gray-700">
+                            <th className="px-2 py-1 text-left font-semibold border border-gray-600 text-gray-200">Type</th>
+                            <th className="px-2 py-1 text-center font-semibold border border-gray-600 text-gray-200">Count</th>
+                            <th className="px-2 py-1 text-center font-semibold border border-gray-600 text-gray-200">Avg</th>
+                            <th className="px-2 py-1 text-center font-semibold border border-gray-600 text-gray-200">Min</th>
+                            <th className="px-2 py-1 text-center font-semibold border border-gray-600 text-gray-200">Max</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr className="hover:bg-blue-900/30">
+                            <td className="px-2 py-1 border border-gray-600 text-gray-300">🚗 Car</td>
+                            <td className="px-2 py-1 text-center border border-gray-600 text-blue-400 font-bold">{simulationState.speed_distribution.car.count}</td>
+                            <td className="px-2 py-1 text-center border border-gray-600 text-gray-300">{simulationState.speed_distribution.car.avg}</td>
+                            <td className="px-2 py-1 text-center border border-gray-600 text-gray-300">{simulationState.speed_distribution.car.min}</td>
+                            <td className="px-2 py-1 text-center border border-gray-600 text-gray-300">{simulationState.speed_distribution.car.max}</td>
+                          </tr>
+                          <tr className="hover:bg-green-900/30">
+                            <td className="px-2 py-1 border border-gray-600 text-gray-300">🚴 Bicycle</td>
+                            <td className="px-2 py-1 text-center border border-gray-600 text-green-400 font-bold">{simulationState.speed_distribution.bicycle.count}</td>
+                            <td className="px-2 py-1 text-center border border-gray-600 text-gray-300">{simulationState.speed_distribution.bicycle.avg}</td>
+                            <td className="px-2 py-1 text-center border border-gray-600 text-gray-300">{simulationState.speed_distribution.bicycle.min}</td>
+                            <td className="px-2 py-1 text-center border border-gray-600 text-gray-300">{simulationState.speed_distribution.bicycle.max}</td>
+                          </tr>
+                          <tr className="hover:bg-yellow-900/30">
+                            <td className="px-2 py-1 border border-gray-600 text-gray-300">🚶 Pedestrian</td>
+                            <td className="px-2 py-1 text-center border border-gray-600 text-yellow-400 font-bold">{simulationState.speed_distribution.pedestrian.count}</td>
+                            <td className="px-2 py-1 text-center border border-gray-600 text-gray-300">{simulationState.speed_distribution.pedestrian.avg}</td>
+                            <td className="px-2 py-1 text-center border border-gray-600 text-gray-300">{simulationState.speed_distribution.pedestrian.min}</td>
+                            <td className="px-2 py-1 text-center border border-gray-600 text-gray-300">{simulationState.speed_distribution.pedestrian.max}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  
+                  {/* Current Time-Based Distribution */}
+                  <div className="mt-3 p-2 bg-gradient-to-r from-purple-900/50 to-blue-900/50 rounded-lg border border-purple-700">
+                    <div className="text-xs font-semibold text-purple-300 mb-1">
+                      🕐 {trafficConfig.time_string} - {trafficConfig.time_period}
+                      <span className="text-purple-400 font-normal ml-1">(1 min = 1 hr)</span>
+                    </div>
+                    <div className="flex gap-2 text-xs flex-wrap">
+                      {Object.entries(trafficConfig.vehicle_distribution).map(([type, ratio]) => (
+                        <span key={type} className="px-2 py-1 bg-gray-700 rounded border border-gray-600 text-gray-300">
+                          {type === 'car' ? '🚗' : type === 'bicycle' ? '🚴' : '🚶'} {(Number(ratio) * 100).toFixed(0)}%
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-xs text-gray-400 italic">Loading config...</div>
+              )}
+            </div>
+
             {/* Vehicle List */}
             <div className="md:col-span-2">
-              <h3 className="text-sm font-bold text-gray-700 mb-3">
+              <h3 className="text-sm font-bold text-gray-200 mb-3">
                 🚦 Active Vehicles ({vehicles.filter(v => v.status !== 'arrived').length})
               </h3>
               <div className="max-h-64 overflow-y-auto space-y-1">
@@ -610,30 +648,30 @@ const MultiVehicleTrafficSimulator: React.FC = () => {
                   <div
                     key={vehicle.id}
                     className={`flex items-center justify-between p-2 rounded text-xs cursor-pointer transition ${
-                      highlightedVehicle === vehicle.id ? 'bg-blue-100 border-blue-500' : 'bg-gray-50 hover:bg-gray-100'
+                      highlightedVehicle === vehicle.id ? 'bg-blue-900/50 border border-blue-500' : 'bg-gray-700 hover:bg-gray-600'
                     }`}
                     onClick={() => setHighlightedVehicle(highlightedVehicle === vehicle.id ? null : vehicle.id)}
                   >
                     <div className="flex items-center gap-2">
                       <span className="text-lg">{VEHICLE_EMOJI[vehicle.type]}</span>
                       <div>
-                        <div className="font-medium text-gray-800">{vehicle.id}</div>
-                        <div className="text-gray-500 text-xs">
+                        <div className="font-medium text-gray-200">{vehicle.id}</div>
+                        <div className="text-gray-400 text-xs">
                           {vehicle.current_node} → {vehicle.goal_node}
                         </div>
                       </div>
                     </div>
                     <div className="text-right">
                       <div className={`px-2 py-1 rounded text-xs font-medium ${
-                        vehicle.status === 'moving' ? 'bg-green-100 text-green-700' :
-                        vehicle.status === 'stuck' ? 'bg-red-100 text-red-700' :
-                        vehicle.status === 'rerouting' ? 'bg-yellow-100 text-yellow-700' :
-                        'bg-gray-100 text-gray-700'
+                        vehicle.status === 'moving' ? 'bg-green-900/50 text-green-400' :
+                        vehicle.status === 'stuck' ? 'bg-red-900/50 text-red-400' :
+                        vehicle.status === 'rerouting' ? 'bg-yellow-900/50 text-yellow-400' :
+                        'bg-gray-600 text-gray-300'
                       }`}>
                         {vehicle.status}
                       </div>
                       {vehicle.reroute_count > 0 && (
-                        <div className="text-xs text-gray-500 mt-1">
+                        <div className="text-xs text-gray-400 mt-1">
                           Reroutes: {vehicle.reroute_count}
                         </div>
                       )}
@@ -641,7 +679,7 @@ const MultiVehicleTrafficSimulator: React.FC = () => {
                   </div>
                 ))}
                 {vehicles.filter(v => v.status !== 'arrived').length > 20 && (
-                  <p className="text-gray-400 text-xs italic text-center">
+                  <p className="text-gray-500 text-xs italic text-center">
                     +{vehicles.filter(v => v.status !== 'arrived').length - 20} more vehicles
                   </p>
                 )}

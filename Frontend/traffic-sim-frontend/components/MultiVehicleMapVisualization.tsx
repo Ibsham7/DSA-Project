@@ -1,16 +1,9 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState } from 'react';
 import { GraphData, Vehicle, EdgeTrafficData, getCongestionColor, VEHICLE_EMOJI, Accident, BlockedRoad } from '@/lib/types';
 import VehicleMarker from './VehicleMarker';
 import VehicleDetailsTooltip from './VehicleDetailsTooltip';
-
-// Smooth position tracking for each vehicle to eliminate jitter
-interface SmoothedPosition {
-  edgeKey: string;          // "currentNode-nextNode" to detect edge changes
-  smoothedProgress: number; // EMA-smoothed position (0.0 to 1.0)
-  lastUpdate: number;       // Timestamp of last update
-}
 
 interface MultiVehicleMapVisualizationProps {
   vehicles: Vehicle[];
@@ -37,9 +30,7 @@ const MultiVehicleMapVisualization: React.FC<MultiVehicleMapVisualizationProps> 
   const [panPosition, setPanPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  
-  // Smooth position tracking to eliminate jumping/jitter at all speeds
-  const smoothedPositions = useRef<Map<string, SmoothedPosition>>(new Map());
+  const containerRef = React.useRef<HTMLDivElement>(null);
   
   const handleZoomIn = () => setZoomLevel(prev => Math.min(prev + 0.2, 3));
   const handleZoomOut = () => setZoomLevel(prev => Math.max(prev - 0.2, 0.5));
@@ -65,11 +56,21 @@ const MultiVehicleMapVisualization: React.FC<MultiVehicleMapVisualizationProps> 
     setIsDragging(false);
   };
 
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? -0.1 : 0.1;
-    setZoomLevel(prev => Math.max(0.5, Math.min(3, prev + delta)));
-  };
+  // Wheel event for zooming - use native event to prevent page scroll
+  React.useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const delta = e.deltaY > 0 ? -0.1 : 0.1;
+      setZoomLevel(prev => Math.max(0.5, Math.min(3, prev + delta)));
+    };
+
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    return () => container.removeEventListener('wheel', handleWheel);
+  }, []);
   
   const SCALE = 110;
   const OFFSET_X = 180;
@@ -80,9 +81,9 @@ const MultiVehicleMapVisualization: React.FC<MultiVehicleMapVisualizationProps> 
   // Check if map data is loaded
   if (!mapData || !mapData.nodes || mapData.nodes.length === 0) {
     return (
-      <div className="bg-white rounded-lg shadow-2xl p-8 border border-gray-200">
-        <div className="text-center text-gray-500">
-          <svg className="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <div className="bg-gray-800 rounded-lg shadow-2xl p-8 border border-gray-700">
+        <div className="text-center text-gray-400">
+          <svg className="w-16 h-16 mx-auto mb-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
           </svg>
           <p className="text-lg font-medium">Loading map data...</p>
@@ -110,7 +111,7 @@ const MultiVehicleMapVisualization: React.FC<MultiVehicleMapVisualizationProps> 
   };
 
   // Get curve control point for realistic roads with better separation
-  const getCurveOffset = (from: string, to: string, x1: number, y1: number, x2: number, y2: number) => {
+  const getCurveOffset = (from: string, to: string, x1: number, y1: number, x2: number, y2: number, edgeIndex: number) => {
     const dx = x2 - x1;
     const dy = y2 - y1;
     const length = Math.sqrt(dx * dx + dy * dy);
@@ -140,10 +141,7 @@ const MultiVehicleMapVisualization: React.FC<MultiVehicleMapVisualizationProps> 
     } else {
       // Single direction - add slight curve for visual appeal
       const baseOffset = Math.min(length * 0.12, 40);
-      // Use consistent hash-based variation instead of edgeIndex
-      const edgeKey = `${from}-${to}`;
-      const hash = edgeKey.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-      const variation = ((hash % 5) - 2) * 0.3; // Consistent variation based on edge names
+      const variation = ((edgeIndex % 5) - 2) * 0.3; // Smaller variation
       const offsetAmount = baseOffset * variation;
       
       return {
@@ -165,19 +163,54 @@ const MultiVehicleMapVisualization: React.FC<MultiVehicleMapVisualizationProps> 
   // Get place icon
   const getPlaceIcon = (nodeName: string): string => {
     const name = nodeName.toLowerCase();
-    if (name.includes('seecs')) return '💻';
-    if (name.includes('library')) return '📚';
-    if (name.includes('cafeteria')) return '🍽️';
-    if (name.includes('sports')) return '⚽';
-    if (name.includes('admin')) return '🏢';
-    if (name.includes('hostel')) return '🏠';
-    if (name.includes('mosque')) return '🕌';
-    if (name.includes('gate')) return '🚪';
-    if (name.includes('hospital')) return '🏥';
-    if (name.includes('university')) return '🎓';
-    if (name.includes('mall')) return '🛍️';
-    if (name.includes('park')) return '🌳';
+    // Transportation
     if (name.includes('airport')) return '✈️';
+    if (name.includes('station') || name.includes('terminal')) return '🚉';
+    if (name.includes('subway') || name.includes('metro')) return '🚇';
+    if (name.includes('harbor') || name.includes('port')) return '⚓';
+    if (name.includes('marina')) return '⛵';
+    
+    // Education & Culture
+    if (name.includes('university') || name.includes('college')) return '🎓';
+    if (name.includes('school')) return '🏫';
+    if (name.includes('library')) return '📚';
+    if (name.includes('museum')) return '🏛️';
+    if (name.includes('theater') || name.includes('theatre')) return '🎭';
+    if (name.includes('art') && name.includes('gallery')) return '🎨';
+    
+    // Healthcare & Emergency
+    if (name.includes('hospital')) return '🏥';
+    if (name.includes('police')) return '👮';
+    if (name.includes('fire')) return '🚒';
+    
+    // Government & Services
+    if (name.includes('city') && name.includes('hall')) return '🏛️';
+    if (name.includes('courthouse')) return '⚖️';
+    if (name.includes('post') && name.includes('office')) return '📮';
+    
+    // Commercial & Shopping
+    if (name.includes('mall') || name.includes('shopping')) return '🛍️';
+    if (name.includes('market')) return '🛒';
+    if (name.includes('restaurant')) return '🍽️';
+    if (name.includes('cinema')) return '🎬';
+    
+    // Recreation & Entertainment
+    if (name.includes('park') || name.includes('garden')) return '🌳';
+    if (name.includes('beach')) return '🏖️';
+    if (name.includes('stadium') || name.includes('sports')) return '⚽';
+    if (name.includes('gym') || name.includes('fitness')) return '💪';
+    if (name.includes('golf')) return '⛳';
+    if (name.includes('zoo')) return '🦁';
+    
+    // Business & Work
+    if (name.includes('business') || name.includes('downtown')) return '🏢';
+    if (name.includes('tech') || name.includes('industrial')) return '🏭';
+    if (name.includes('convention')) return '🎪';
+    
+    // Residential
+    if (name.includes('residential')) return '🏘️';
+    
+    // Default
     return '📍';
   };
 
@@ -204,8 +237,7 @@ const MultiVehicleMapVisualization: React.FC<MultiVehicleMapVisualizationProps> 
       .map((vehicle, index) => ({ vehicle, queuePosition: index }));
   };
 
-  // Calculate vehicle position with exponential smoothing to eliminate jitter
-  // This approach is ROBUST - it won't break with roadblocks, accidents, or any future features
+  // Calculate vehicle position on road using physics-based position from backend
   const calculateVehiclePosition = (vehicle: Vehicle) => {
     const currentNodeData = mapData.nodes.find(n => n.id === vehicle.current_node);
     const nextNodeData = vehicle.next_node ? mapData.nodes.find(n => n.id === vehicle.next_node) : null;
@@ -213,15 +245,18 @@ const MultiVehicleMapVisualization: React.FC<MultiVehicleMapVisualizationProps> 
     if (!currentNodeData) return null;
 
     // If no next node, vehicle is at current node
-    if (!nextNodeData || !vehicle.next_node) {
-      // Clear smoothing for this vehicle
-      smoothedPositions.current.delete(vehicle.id);
+    if (!nextNodeData) {
       return {
         x: scaleX(currentNodeData.x),
         y: scaleY(currentNodeData.y)
       };
     }
 
+    // Get edge index for curve matching
+    const edgeIndex = mapData.edges.findIndex(
+      e => e.from === vehicle.current_node && e.to === vehicle.next_node
+    );
+    
     // Scale node positions
     const x1 = scaleX(currentNodeData.x);
     const y1 = scaleY(currentNodeData.y);
@@ -229,46 +264,13 @@ const MultiVehicleMapVisualization: React.FC<MultiVehicleMapVisualizationProps> 
     const y2 = scaleY(nextNodeData.y);
     
     // Get the curve control point (same as the road)
-    const curve = getCurveOffset(vehicle.current_node, vehicle.next_node, x1, y1, x2, y2);
+    const curve = getCurveOffset(vehicle.current_node, nextNodeData.id, x1, y1, x2, y2, edgeIndex >= 0 ? edgeIndex : 0);
     
-    // Get backend physics position (0.0 to 1.0)
-    const backendProgress = vehicle.position_on_edge || 0.0;
-    const edgeKey = `${vehicle.current_node}-${vehicle.next_node}`;
-    const now = Date.now();
+    // Use the EXACT physics-based position from backend (0.0 to 1.0 along edge)
+    // This is calculated by the backend with proper acceleration, deceleration, and following distance
+    const progress = vehicle.position_on_edge || 0.0;
     
-    // Get or initialize smoothed position for this vehicle
-    let smoothedData = smoothedPositions.current.get(vehicle.id);
-    
-    // Detect edge change (vehicle moved to new edge) - reset smoothing
-    if (!smoothedData || smoothedData.edgeKey !== edgeKey) {
-      smoothedData = {
-        edgeKey,
-        smoothedProgress: backendProgress,
-        lastUpdate: now
-      };
-      smoothedPositions.current.set(vehicle.id, smoothedData);
-    } else {
-      // Apply exponential moving average (EMA) for smooth interpolation
-      // Alpha determines smoothing strength: lower = smoother, higher = more responsive
-      // Use speed-adaptive alpha: slower speeds need more smoothing
-      const speed = vehicle.current_speed || 0;
-      const baseAlpha = 0.3;  // Base smoothing factor
-      
-      // Increase smoothing (lower alpha) at low speeds where jitter is visible
-      // At 0 px/s: alpha = 0.1 (heavy smoothing)
-      // At 10+ px/s: alpha = 0.3 (normal smoothing)
-      const speedFactor = Math.min(speed / 10, 1.0);
-      const alpha = 0.1 + (baseAlpha - 0.1) * speedFactor;
-      
-      // EMA formula: smoothed = alpha * new + (1 - alpha) * previous
-      smoothedData.smoothedProgress = alpha * backendProgress + (1 - alpha) * smoothedData.smoothedProgress;
-      smoothedData.lastUpdate = now;
-    }
-    
-    // Use smoothed progress for rendering
-    const progress = Math.min(Math.max(smoothedData.smoothedProgress, 0), 1);
-    
-    // Calculate position on bezier curve
+    // Calculate exact position on the quadratic bezier curve
     const point = getPointOnCurve(x1, y1, curve.cx, curve.cy, x2, y2, progress);
     
     return {
@@ -278,9 +280,9 @@ const MultiVehicleMapVisualization: React.FC<MultiVehicleMapVisualizationProps> 
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-2xl overflow-hidden border border-gray-200 relative flex flex-col h-full">
+    <div className="bg-gray-800 rounded-lg shadow-2xl overflow-hidden border border-gray-700 relative flex flex-col h-full">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 p-3 flex items-center justify-between flex-shrink-0">
+      <div className="bg-gray-900 border-b border-gray-700 p-3 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 bg-blue-500 rounded flex items-center justify-center">
             <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
@@ -288,15 +290,15 @@ const MultiVehicleMapVisualization: React.FC<MultiVehicleMapVisualizationProps> 
             </svg>
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-gray-800">Multi-Vehicle Traffic Simulation</h2>
-            <p className="text-xs text-gray-500">{vehicles.length} vehicles • Real-time traffic</p>
+            <h2 className="text-lg font-semibold text-white">Multi-Vehicle Traffic Simulation</h2>
+            <p className="text-xs text-gray-400">{vehicles.length} vehicles • Real-time traffic</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowCongestion(!showCongestion)}
             className={`px-3 py-1 rounded-full text-xs font-medium transition ${
-              showCongestion ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600'
+              showCongestion ? 'bg-orange-900/50 text-orange-300 border border-orange-700' : 'bg-gray-700 text-gray-400 border border-gray-600'
             }`}
           >
             {showCongestion ? 'Hide' : 'Show'} Congestion
@@ -304,7 +306,7 @@ const MultiVehicleMapVisualization: React.FC<MultiVehicleMapVisualizationProps> 
           <button
             onClick={() => setShowVehicles(!showVehicles)}
             className={`px-3 py-1 rounded-full text-xs font-medium transition ${
-              showVehicles ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+              showVehicles ? 'bg-green-900/50 text-green-300 border border-green-700' : 'bg-gray-700 text-gray-400 border border-gray-600'
             }`}
           >
             {showVehicles ? 'Hide' : 'Show'} Vehicles
@@ -323,7 +325,8 @@ const MultiVehicleMapVisualization: React.FC<MultiVehicleMapVisualizationProps> 
 
       {/* Map canvas */}
       <div 
-        className="relative bg-gradient-to-br from-gray-50 to-gray-100 overflow-hidden cursor-grab active:cursor-grabbing h-full flex-1"
+        ref={containerRef}
+        className="relative bg-gradient-to-br from-gray-900 to-gray-800 overflow-hidden cursor-grab active:cursor-grabbing h-full flex-1"
         style={{ 
           touchAction: 'none'
         }}
@@ -331,28 +334,29 @@ const MultiVehicleMapVisualization: React.FC<MultiVehicleMapVisualizationProps> 
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
-        onWheel={handleWheel}
       >
         <div style={{
-          transform: `translate(${panPosition.x}px, ${panPosition.y}px)`,
+          transform: `translate(${panPosition.x}px, ${panPosition.y}px) scale(${zoomLevel})`,
+          transformOrigin: 'center center',
           transition: isDragging ? 'none' : 'transform 0.1s ease-out',
           width: 'fit-content',
           height: 'fit-content'
         }}>
           <svg 
-            width={WIDTH * zoomLevel} 
-            height={HEIGHT * zoomLevel}
+            width={WIDTH} 
+            height={HEIGHT}
             style={{
               display: 'block'
             }}
           >
-            <g transform={`scale(${zoomLevel})`}>
+            <g>
             {/* Background grid */}
             <defs>
               <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-                <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#e5e7eb" strokeWidth="0.5"/>
+                <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#374151" strokeWidth="0.5"/>
               </pattern>
             </defs>
+            <rect width={WIDTH} height={HEIGHT} fill="#1f2937" />
             <rect width={WIDTH} height={HEIGHT} fill="url(#grid)" />
 
             {/* Draw edges with congestion */}
@@ -384,7 +388,7 @@ const MultiVehicleMapVisualization: React.FC<MultiVehicleMapVisualizationProps> 
               
               const vehicleCount = getEdgeVehicleCount(edge.from, edge.to);
 
-              const curve = getCurveOffset(edge.from, edge.to, x1, y1, x2, y2);
+              const curve = getCurveOffset(edge.from, edge.to, x1, y1, x2, y2, idx);
               const pathD = `M ${x1} ${y1} Q ${curve.cx} ${curve.cy} ${x2} ${y2}`;
 
               return (
@@ -543,8 +547,8 @@ const MultiVehicleMapVisualization: React.FC<MultiVehicleMapVisualizationProps> 
                     cx={nodeX}
                     cy={nodeY}
                     r={8}
-                    fill="#6b7280"
-                    stroke="white"
+                    fill="#4b5563"
+                    stroke="#9ca3af"
                     strokeWidth="2"
                   />
 
@@ -556,7 +560,7 @@ const MultiVehicleMapVisualization: React.FC<MultiVehicleMapVisualizationProps> 
                         cy={nodeY - 12}
                         r="10"
                         fill="#3b82f6"
-                        stroke="white"
+                        stroke="#60a5fa"
                         strokeWidth="2"
                       />
                       <text
@@ -579,7 +583,7 @@ const MultiVehicleMapVisualization: React.FC<MultiVehicleMapVisualizationProps> 
                     y={nodeY + 20}
                     fontSize="10"
                     fontWeight="600"
-                    fill="#1f2937"
+                    fill="#d1d5db"
                     textAnchor="middle"
                     className="select-none"
                   >
@@ -616,7 +620,11 @@ const MultiVehicleMapVisualization: React.FC<MultiVehicleMapVisualizationProps> 
                         const x2 = scaleX(toNodeData.x);
                         const y2 = scaleY(toNodeData.y);
 
-                        const curve = getCurveOffset(nodeId, vehicle.path[pathIdx + 1], x1, y1, x2, y2);
+                        const edgeIdx = mapData.edges.findIndex(
+                          e => e.from === nodeId && e.to === vehicle.path[pathIdx + 1]
+                        );
+
+                        const curve = getCurveOffset(nodeId, vehicle.path[pathIdx + 1], x1, y1, x2, y2, edgeIdx >= 0 ? edgeIdx : pathIdx);
                         const pathD = `M ${x1} ${y1} Q ${curve.cx} ${curve.cy} ${x2} ${y2}`;
 
                         // Determine if this is the current edge
@@ -718,10 +726,11 @@ const MultiVehicleMapVisualization: React.FC<MultiVehicleMapVisualizationProps> 
                     onMouseEnter={(e) => {
                       setHoveredVehicle(vehicle);
                       const svgRect = e.currentTarget.ownerSVGElement?.getBoundingClientRect();
-                      if (svgRect) {
+                      if (svgRect && containerRef.current) {
+                        const containerRect = containerRef.current.getBoundingClientRect();
                         setTooltipPosition({
-                          x: position.x * zoomLevel + svgRect.left,
-                          y: position.y * zoomLevel + svgRect.top,
+                          x: (position.x * zoomLevel) + panPosition.x + containerRect.left,
+                          y: (position.y * zoomLevel) + panPosition.y + containerRect.top,
                         });
                       }
                     }}
@@ -729,12 +738,7 @@ const MultiVehicleMapVisualization: React.FC<MultiVehicleMapVisualizationProps> 
                       setHoveredVehicle(null);
                       setTooltipPosition(null);
                     }}
-                    style={{ 
-                      cursor: 'pointer',
-                      // GPU acceleration for smoother rendering
-                      transform: 'translate3d(0, 0, 0)',
-                      willChange: 'transform'
-                    }}
+                    style={{ cursor: 'pointer' }}
                   >
                     {/* Larger invisible hitbox for easier hover */}
                     <circle
@@ -761,21 +765,21 @@ const MultiVehicleMapVisualization: React.FC<MultiVehicleMapVisualizationProps> 
         <div className="absolute bottom-4 right-4 flex flex-col gap-2 pointer-events-auto">
           <button 
             onClick={handleZoomIn}
-            className="bg-white p-2 rounded-lg shadow-lg border hover:bg-gray-50 transition"
+            className="bg-gray-800 p-2 rounded-lg shadow-lg border border-gray-700 hover:bg-gray-700 transition"
           >
-            <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
           </button>
           <button 
             onClick={handleZoomOut}
-            className="bg-white p-2 rounded-lg shadow-lg border hover:bg-gray-50 transition"
+            className="bg-gray-800 p-2 rounded-lg shadow-lg border border-gray-700 hover:bg-gray-700 transition"
           >
-            <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
             </svg>
           </button>
-          <div className="bg-white px-2 py-1 rounded-lg shadow-lg border text-xs font-medium text-center">
+          <div className="bg-gray-800 border border-gray-700 px-2 py-1 rounded-lg shadow-lg text-xs font-medium text-center text-gray-200">
             {Math.round(zoomLevel * 100)}%
           </div>
           <button 
@@ -783,10 +787,10 @@ const MultiVehicleMapVisualization: React.FC<MultiVehicleMapVisualizationProps> 
               setPanPosition({ x: 0, y: 0 });
               setZoomLevel(1);
             }}
-            className="bg-white p-2 rounded-lg shadow-lg border hover:bg-gray-50 transition"
+            className="bg-gray-800 p-2 rounded-lg shadow-lg border border-gray-700 hover:bg-gray-700 transition"
             title="Reset view"
           >
-            <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
           </button>
@@ -794,8 +798,8 @@ const MultiVehicleMapVisualization: React.FC<MultiVehicleMapVisualizationProps> 
       </div>
 
       {/* Legend */}
-      <div className="bg-gray-50 border-t border-gray-200 p-3 flex-shrink-0">
-        <div className="grid grid-cols-7 gap-2 text-xs">
+      <div className="bg-gray-900 border-t border-gray-700 p-3 flex-shrink-0">
+        <div className="grid grid-cols-7 gap-2 text-xs text-gray-300">
           <div className="flex items-center gap-1">
             <div className="w-4 h-1 bg-green-500 rounded"></div>
             <span>Free Flow</span>

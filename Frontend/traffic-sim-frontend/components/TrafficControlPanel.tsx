@@ -94,11 +94,11 @@ const TrafficControlPanel: React.FC<TrafficControlPanelProps> = ({
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-lg p-4 space-y-4">
-      <div className="border-b pb-2">
-        <h3 className="text-lg font-bold text-gray-800">Traffic Control Panel</h3>
+    <div className="bg-gray-800 rounded-lg shadow-lg p-4 space-y-4">
+      <div className="border-b border-gray-700 pb-2">
+        <h3 className="text-lg font-bold text-white">Traffic Control Panel</h3>
         {simulationInfo && (
-          <div className="text-xs text-gray-600 mt-1 space-y-1">
+          <div className="text-xs text-gray-400 mt-1 space-y-1">
             <div>Elapsed: {formatTime(simulationInfo.elapsed_time)}</div>
             <div className="flex gap-4">
               <span>Accidents: {simulationInfo.accidents_count}</span>
@@ -112,7 +112,7 @@ const TrafficControlPanel: React.FC<TrafficControlPanelProps> = ({
       {/* Accident Controls */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <h4 className="font-semibold text-sm text-gray-700">🚨 Accidents ({accidents.length})</h4>
+          <h4 className="font-semibold text-sm text-gray-200">🚨 Accidents ({accidents.length})</h4>
           <button
             onClick={() => setShowAccidentForm(!showAccidentForm)}
             className="px-3 py-1 text-xs bg-red-500 hover:bg-red-600 text-white rounded transition-colors"
@@ -122,18 +122,18 @@ const TrafficControlPanel: React.FC<TrafficControlPanelProps> = ({
         </div>
 
         {showAccidentForm && (
-          <div className="bg-gray-50 p-3 rounded space-y-2">
-            <div className="text-xs text-gray-600 mb-2">Select road for accident or create random</div>
+          <div className="bg-gray-700 p-3 rounded space-y-2">
+            <div className="text-xs text-gray-400 mb-2">Select road for accident or create random</div>
             
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">From Node</label>
+              <label className="block text-xs font-medium text-gray-300 mb-1">From Node</label>
               <select
                 value={accidentFrom}
                 onChange={(e) => {
                   setAccidentFrom(e.target.value);
                   setAccidentTo(''); // Reset to node when from node changes
                 }}
-                className="w-full px-2 py-1 text-sm border rounded focus:ring-2 focus:ring-red-500"
+                className="w-full px-2 py-1 text-sm bg-gray-600 border border-gray-500 text-white rounded focus:ring-2 focus:ring-red-500"
               >
                 <option value="">-- Select Start Node --</option>
                 {uniqueNodes.map((node) => (
@@ -145,12 +145,12 @@ const TrafficControlPanel: React.FC<TrafficControlPanelProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">To Node</label>
+              <label className="block text-xs font-medium text-gray-300 mb-1">To Node</label>
               <select
                 value={accidentTo}
                 onChange={(e) => setAccidentTo(e.target.value)}
                 disabled={!accidentFrom}
-                className="w-full px-2 py-1 text-sm border rounded focus:ring-2 focus:ring-red-500 disabled:bg-gray-100"
+                className="w-full px-2 py-1 text-sm bg-gray-600 border border-gray-500 text-white rounded focus:ring-2 focus:ring-red-500 disabled:bg-gray-700 disabled:text-gray-500"
               >
                 <option value="">-- Select End Node --</option>
                 {availableToNodesForAccident.map((node) => (
@@ -181,16 +181,16 @@ const TrafficControlPanel: React.FC<TrafficControlPanelProps> = ({
 
         <div className="space-y-2 max-h-40 overflow-y-auto">
           {accidents.length === 0 ? (
-            <div className="text-xs text-gray-500 italic p-2 bg-gray-50 rounded">No active accidents</div>
+            <div className="text-xs text-gray-400 italic p-2 bg-gray-700 rounded">No active accidents</div>
           ) : (
             accidents.map((accident) => (
-              <div key={accident.id} className="bg-gray-50 p-2 rounded text-xs space-y-1">
+              <div key={accident.id} className="bg-gray-700 p-2 rounded text-xs space-y-1">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className={`${getSeverityColor(accident.severity)} text-white px-2 py-0.5 rounded font-bold uppercase text-[10px]`}>
                       {accident.severity}
                     </span>
-                    <span className="font-mono text-gray-700">
+                    <span className="font-mono text-gray-300">
                       {accident.from_node} → {accident.to_node}
                     </span>
                   </div>
@@ -201,7 +201,7 @@ const TrafficControlPanel: React.FC<TrafficControlPanelProps> = ({
                     Resolve
                   </button>
                 </div>
-                <div className="text-gray-500">Duration: {accident.duration}s</div>
+                <div className="text-gray-400">Duration: {accident.duration}s</div>
               </div>
             ))
           )}
@@ -211,7 +211,7 @@ const TrafficControlPanel: React.FC<TrafficControlPanelProps> = ({
       {/* Road Blockage Controls */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <h4 className="font-semibold text-sm text-gray-700">🚧 Blocked Roads ({blockedRoads.length})</h4>
+          <h4 className="font-semibold text-sm text-gray-200">🚧 Blocked Roads ({blockedRoads.length})</h4>
           <button
             onClick={() => setShowBlockForm(!showBlockForm)}
             className="px-3 py-1 text-xs bg-orange-500 hover:bg-orange-600 text-white rounded transition-colors"
@@ -221,16 +221,16 @@ const TrafficControlPanel: React.FC<TrafficControlPanelProps> = ({
         </div>
 
         {showBlockForm && (
-          <div className="bg-gray-50 p-3 rounded space-y-2">
+          <div className="bg-gray-700 p-3 rounded space-y-2">
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">From Node</label>
+              <label className="block text-xs font-medium text-gray-300 mb-1">From Node</label>
               <select
                 value={blockFrom}
                 onChange={(e) => {
                   setBlockFrom(e.target.value);
                   setBlockTo(''); // Reset to node when from node changes
                 }}
-                className="w-full px-2 py-1 text-sm border rounded focus:ring-2 focus:ring-orange-500"
+                className="w-full px-2 py-1 text-sm bg-gray-600 border border-gray-500 text-white rounded focus:ring-2 focus:ring-orange-500"
               >
                 <option value="">-- Select Start Node --</option>
                 {uniqueNodes.map((node) => (
@@ -242,12 +242,12 @@ const TrafficControlPanel: React.FC<TrafficControlPanelProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">To Node</label>
+              <label className="block text-xs font-medium text-gray-300 mb-1">To Node</label>
               <select
                 value={blockTo}
                 onChange={(e) => setBlockTo(e.target.value)}
                 disabled={!blockFrom}
-                className="w-full px-2 py-1 text-sm border rounded focus:ring-2 focus:ring-orange-500 disabled:bg-gray-100"
+                className="w-full px-2 py-1 text-sm bg-gray-600 border border-gray-500 text-white rounded focus:ring-2 focus:ring-orange-500 disabled:bg-gray-700 disabled:text-gray-500"
               >
                 <option value="">-- Select End Node --</option>
                 {availableToNodesForBlock.map((node) => (
@@ -259,11 +259,11 @@ const TrafficControlPanel: React.FC<TrafficControlPanelProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Reason</label>
+              <label className="block text-xs font-medium text-gray-300 mb-1">Reason</label>
               <select
                 value={blockReason}
                 onChange={(e) => setBlockReason(e.target.value)}
-                className="w-full px-2 py-1 text-sm border rounded focus:ring-2 focus:ring-orange-500"
+                className="w-full px-2 py-1 text-sm bg-gray-600 border border-gray-500 text-white rounded focus:ring-2 focus:ring-orange-500"
               >
                 <option value="construction">Construction</option>
                 <option value="maintenance">Maintenance</option>
@@ -284,12 +284,12 @@ const TrafficControlPanel: React.FC<TrafficControlPanelProps> = ({
 
         <div className="space-y-2 max-h-40 overflow-y-auto">
           {blockedRoads.length === 0 ? (
-            <div className="text-xs text-gray-500 italic p-2 bg-gray-50 rounded">No blocked roads</div>
+            <div className="text-xs text-gray-400 italic p-2 bg-gray-700 rounded">No blocked roads</div>
           ) : (
             blockedRoads.map((road, idx) => (
-              <div key={idx} className="bg-gray-50 p-2 rounded text-xs space-y-1">
+              <div key={idx} className="bg-gray-700 p-2 rounded text-xs space-y-1">
                 <div className="flex items-center justify-between">
-                  <span className="font-mono text-gray-700">
+                  <span className="font-mono text-gray-300">
                     {road.from_node} → {road.to_node}
                   </span>
                   <button
@@ -299,7 +299,7 @@ const TrafficControlPanel: React.FC<TrafficControlPanelProps> = ({
                     Unblock
                   </button>
                 </div>
-                <div className="text-gray-500 capitalize">Reason: {road.reason}</div>
+                <div className="text-gray-400 capitalize">Reason: {road.reason}</div>
               </div>
             ))
           )}

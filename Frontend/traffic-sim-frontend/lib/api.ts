@@ -247,6 +247,26 @@ export const api = {
     if (!response.ok) throw new Error('Failed to fetch simulation info');
     return response.json();
   },
+
+  async getTrafficConfig(): Promise<{
+    current_hour: number;
+    current_minute: number;
+    time_string: string;
+    time_period: string;
+    time_scale: number;
+    speed_distribution: {
+      car: { mean: number; std_dev: number; min: number; max: number };
+      bicycle: { mean: number; std_dev: number; min: number; max: number };
+      pedestrian: { mean: number; std_dev: number; min: number; max: number };
+    };
+    vehicle_distribution: Record<string, number>;
+    spawn_rate: { vehicles_per_minute_mean: number; vehicles_per_minute_std_dev: number };
+    congestion: { mean: number; std_dev: number; peak_hours: number[] };
+  }> {
+    const response = await fetch(`${API_BASE_URL}/traffic_config`);
+    if (!response.ok) throw new Error('Failed to fetch traffic config');
+    return response.json();
+  },
 };
 
 

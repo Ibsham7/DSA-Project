@@ -4,8 +4,10 @@
 
 import random
 import time
+import json
+import os
 from enum import Enum
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict
 from collections import deque
 
 
@@ -25,19 +27,159 @@ class VehicleStatus(Enum):
     REROUTING = "rerouting"      # Calculating new path
 
 
+class TrafficConfig:
+    """
+    Loads and provides access to real-world traffic statistics.
+    Uses statistical distributions for realistic simulation.
+    """
+    _instance = None
+    _config = None
+    
+    # Default fallback values (used if config not loaded)
+    DEFAULT_SPEEDS = {
+        "car": {"mean": 63.5, "std_dev": 17.02, "min": 0, "max": 100},
+        "bicycle": {"mean": 25.0, "std_dev": 8.0, "min": 5, "max": 40},
+        "pedestrian": {"mean": 5.0, "std_dev": 1.5, "min": 2, "max": 8}
+    }
+    
+    @classmethod
+    def load(cls, config_path: str = None):
+        """Load configuration from JSON file"""
+        if config_path is None:
+            config_path = os.path.join(os.path.dirname(__file__), "traffic_config.json")
+        
+        try:
+            with open(config_path, 'r') as f:
+                cls._config = json.load(f)
+            print(f"Loaded traffic config from {config_path}")
+        except Exception as e:
+            print(f"Warning: Could not load traffic config: {e}. Using defaults.")
+            cls._config = None
+    
+    @classmethod
+    def get_config(cls) -> Dict:
+        """Get the loaded config, loading if necessary"""
+        if cls._config is None:
+            cls.load()
+        return cls._config or {}
+    
+    @classmethod
+    def sample_speed(cls, vehicle_type: str) -> float:
+        """
+        Sample a speed from the statistical distribution for this vehicle type.
+        Returns speed in km/h.
+        """
+        config = cls.get_config()
+        speed_config = config.get("speed_kmh", cls.DEFAULT_SPEEDS)
+        
+        type_config = speed_config.get(vehicle_type, cls.DEFAULT_SPEEDS.get(vehicle_type, {"mean": 50, "std_dev": 10, "min": 10, "max": 80}))
+        
+        # Sample from normal distribution
+        speed = random.gauss(type_config["mean"], type_config["std_dev"])
+        # Clamp to min/max
+        speed = max(type_config["min"], min(type_config["max"], speed))
+        
+        return speed
+    
+    @classmethod
+    def get_congestion_params(cls) -> Dict:
+        """Get congestion parameters"""
+        config = cls.get_config()
+        return config.get("congestion", {
+            "mean": 0.425,
+            "std_dev": 0.2,
+            "peak_hours": [9, 10, 17, 18],
+            "peak_multiplier": 2.0
+        })
+    
+    @classmethod
+    def get_accident_params(cls) -> Dict:
+        """Get accident parameters"""
+        config = cls.get_config()
+        return config.get("accidents", {
+            "rate_per_hour": 5,
+            "severity_distribution": {"minor": 0.70, "moderate": 0.25, "severe": 0.05},
+            "duration_minutes": {"mean": 45, "std_dev": 20, "min": 10, "max": 120}
+        })
+    
+    @classmethod
+    def get_blockage_params(cls) -> Dict:
+        """Get blockage parameters"""
+        config = cls.get_config()
+        return config.get("blockages", {
+            "rate_per_hour": 3,
+            "duration_minutes": {"mean": 30, "std_dev": 15, "min": 5, "max": 90}
+        })
+    
+    @classmethod
+    def get_vehicle_distribution(cls, hour: int = None) -> Dict:
+        """
+        Get vehicle type distribution based on time of day.
+        
+        Args:
+            hour: Current hour (0-23). If None, uses current system time.
+        
+        Returns:
+            Dict with car, bicycle, pedestrian percentages
+        """
+        from datetime import datetime
+        if hour is None:
+            hour = datetime.now().hour
+        
+        config = cls.get_config()
+        dist_config = config.get("vehicle_distribution", {})
+        
+        # Check if using time-based distribution (new format)
+        if "morning_rush" in dist_config:
+            # Find which time period we're in
+            for period_name, period_data in dist_config.items():
+                if isinstance(period_data, dict) and "hours" in period_data:
+                    if hour in period_data["hours"]:
+                        return {
+                            "car": period_data.get("car", 0.65),
+                            "bicycle": period_data.get("bicycle", 0.05),
+                            "pedestrian": period_data.get("pedestrian", 0.15)
+                        }
+            # Default fallback
+            return {"car": 0.65, "bicycle": 0.05, "pedestrian": 0.15}
+        else:
+            # Old format - static distribution
+            return {
+                "car": dist_config.get("car", 0.65),
+                "bicycle": dist_config.get("bicycle", 0.05),
+                "pedestrian": dist_config.get("pedestrian", 0.15)
+            }
+    
+    @classmethod
+    def get_speed_distribution(cls) -> Dict:
+        """Get speed distribution for all vehicle types"""
+        config = cls.get_config()
+        return config.get("speed_kmh", cls.DEFAULT_SPEEDS)
+    
+    @classmethod
+    def get_spawn_rate(cls) -> Dict:
+        """Get spawn rate parameters"""
+        config = cls.get_config()
+        return config.get("spawn_rate", {
+            "vehicles_per_minute_mean": 25,
+            "vehicles_per_minute_std_dev": 5.6,
+            "off_peak_multiplier": 0.4
+        })
+
+
+# Conversion factor: km/h to pixels/sec (adjust based on your map scale)
+# Assuming 1 pixel = 10 meters, so 1 km = 100 pixels
+# 1 km/h = 100 pixels / 3600 sec = 0.0278 pixels/sec
+# For visual purposes, we scale up: 1 km/h ≈ 1 pixel/sec
+KMH_TO_PIXELS_PER_SEC = 1.0
+
+
 class Vehicle:
     """
     Represents a single vehicle in the traffic simulation.
     Implements smooth, realistic movement with physics-based positioning.
+    Speed is sampled from real-world statistical distributions.
     """
-    
-    # Vehicle speed multipliers (pixels per second in ideal conditions)
-    # Reduced to realistic speeds for proper simulation pacing
-    SPEED_MULTIPLIERS = {
-        VehicleType.CAR: 30.0,        # 30 pixels/sec (realistic speed)
-        VehicleType.BIKE: 20.0,       # 20 pixels/sec
-        VehicleType.PEDESTRIAN: 10.0  # 10 pixels/sec
-    }
     
     # Vehicle capacity (how much space they occupy on an edge)
     CAPACITY_USAGE = {
@@ -74,7 +216,11 @@ class Vehicle:
         self.path: List[str] = path if path else []
         self.path_index = 0
         self.status = VehicleStatus.WAITING
-        self.speed_multiplier = self.SPEED_MULTIPLIERS[vehicle_type]
+        
+        # Sample speed from statistical distribution (km/h -> pixels/sec)
+        sampled_speed_kmh = TrafficConfig.sample_speed(vehicle_type.value)
+        self.speed_multiplier = sampled_speed_kmh * KMH_TO_PIXELS_PER_SEC
+        
         self.capacity_usage = self.CAPACITY_USAGE[vehicle_type]
         self.spawn_time = time.time()
         self.arrival_time: Optional[float] = None
@@ -84,9 +230,10 @@ class Vehicle:
         self.position_on_edge = 0.0  # 0.0 to 1.0 along current edge
         self.current_speed = 0.0     # Current speed (can be reduced by traffic)
         self.target_speed = self.speed_multiplier  # Desired speed
-        self.acceleration = 1.5      # Smooth acceleration (px/s²) - realistic gradual acceleration
+        self.acceleration = 0.3      # How quickly speed changes (increased for smoother response)
         self.wait_time = 0.0  # Time spent waiting in traffic
         self.reroute_count = 0
+        self._last_position = 0.0    # For smoothing to prevent jitter
         
     def set_path(self, path: List[str], cost: float = 0.0):
         """
@@ -98,6 +245,8 @@ class Vehicle:
         """
         self.path = path
         self.path_index = 0
+        self.position_on_edge = 0.0  # Reset position when path changes
+        self._last_position = 0.0    # Reset smoothing tracker
         if len(path) > 1:
             self.next_node = path[1]
             self.status = VehicleStatus.MOVING
@@ -124,6 +273,7 @@ class Vehicle:
             self.next_node = self.path[self.path_index + 1]
             self.status = VehicleStatus.MOVING
             self.position_on_edge = 0.0  # Reset position for new edge
+            self._last_position = 0.0    # Reset smoothing tracker
         else:
             self.next_node = None
             self.status = VehicleStatus.ARRIVED
@@ -145,10 +295,12 @@ class Vehicle:
         if self.status != VehicleStatus.MOVING and self.status != VehicleStatus.STUCK:
             return False
         
-        # Accelerate/decelerate toward target speed with smooth damping
-        speed_diff = self.target_speed - self.current_speed
+        # If vehicle is completely stuck (frozen), don't move at all - prevents jumping
+        if self.status == VehicleStatus.STUCK and self.current_speed == 0.0 and self.target_speed == 0.0:
+            return False
         
-        # Smooth acceleration - don't overshoot target
+        # Accelerate/decelerate toward target speed
+        speed_diff = self.target_speed - self.current_speed
         if abs(speed_diff) < self.acceleration * delta_time:
             self.current_speed = self.target_speed
         elif speed_diff > 0:
@@ -156,10 +308,23 @@ class Vehicle:
         else:
             self.current_speed -= self.acceleration * delta_time
         
-        # Update position based on current speed - no threshold needed
-        # Frontend handles smoothing for rendering, backend calculates true physics
+        # Minimum speed threshold - prevent micro-movements that cause jumping
+        # Only apply when target speed is also very low (vehicle is trying to stop/crawl)
+        MIN_SPEED_THRESHOLD = 0.5  # pixels/sec
+        if self.target_speed < 1.0 and abs(self.current_speed) < MIN_SPEED_THRESHOLD:
+            self.current_speed = 0.0
+            return False
+        
+        # Update position based on current speed
         distance_moved = self.current_speed * delta_time
-        self.position_on_edge += distance_moved / edge_length
+        position_change = distance_moved / edge_length
+        
+        # Only update if movement is significant (prevent floating point jitter)
+        if abs(position_change) > 0.0001:  # 0.01% of edge length
+            new_position = self.position_on_edge + position_change
+            # Clamp position to valid range
+            self.position_on_edge = max(0.0, min(1.0, new_position))
+            self._last_position = self.position_on_edge
         
         # Check if reached end of edge
         if self.position_on_edge >= 1.0:
@@ -171,24 +336,32 @@ class Vehicle:
     def slow_down_for_vehicle_ahead(self, distance_to_vehicle: float, min_distance: float = 30.0):
         """
         Slow down if there's a vehicle ahead.
+        Uses hysteresis to prevent oscillation and jumping.
         
         Args:
             distance_to_vehicle: Distance to vehicle ahead in pixels
             min_distance: Minimum safe following distance
         """
+        # Add hysteresis: require more distance to resume than to slow down
+        resume_distance = min_distance * 2.5  # Increased buffer to prevent oscillation
+        
         if distance_to_vehicle < min_distance:
-            # Stop if too close
+            # Too close - FREEZE completely (both speeds to 0)
             self.target_speed = 0.0
+            self.current_speed = 0.0
             self.status = VehicleStatus.STUCK
-        elif distance_to_vehicle < min_distance * 2:
-            # Slow down proportionally
-            self.target_speed = self.speed_multiplier * (distance_to_vehicle / (min_distance * 2))
-            self.status = VehicleStatus.STUCK
-        else:
-            # Clear ahead, resume normal speed
+        elif distance_to_vehicle < min_distance * 1.5:
+            # Close but not frozen - slow crawl
+            speed_ratio = (distance_to_vehicle / (min_distance * 2))
+            min_crawl_speed = self.speed_multiplier * 0.15
+            self.target_speed = max(min_crawl_speed, self.speed_multiplier * speed_ratio)
+            # Don't change status - keep MOVING so it doesn't get frozen
+        elif distance_to_vehicle >= resume_distance:
+            # Clear ahead with buffer, resume normal speed
             self.target_speed = self.speed_multiplier
             if self.status == VehicleStatus.STUCK:
                 self.status = VehicleStatus.MOVING
+        # else: maintain current target_speed in hysteresis zone
         
     def get_current_edge(self) -> Optional[Tuple[str, str]]:
         """

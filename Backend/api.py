@@ -7,10 +7,13 @@ import pathfinder
 import traffic_updater
 from simulator import run_simulation
 from multi_vehicle_simulator import MultiVehicleSimulator
-from vehicle import VehicleType
+from vehicle import VehicleType, TrafficConfig
 import config
 
 app = FastAPI()
+
+# Load traffic configuration from real dataset on startup
+TrafficConfig.load()
 
 # Enable CORS for frontend
 app.add_middleware(
@@ -52,6 +55,32 @@ def home():
     return {"message": "Traffic Simulation API running"}
 
 
+@app.get("/traffic_config")
+def get_traffic_config():
+    """Get current traffic configuration including speed distributions and vehicle ratios"""
+    # Use simulation time (accelerated: 1 real minute = 1 simulation hour)
+    sim_time = simulator.get_simulation_time()
+    current_hour = sim_time["hour"]
+    time_period = sim_time["time_period"]
+    
+    speed_dist = TrafficConfig.get_speed_distribution()
+    vehicle_dist = TrafficConfig.get_vehicle_distribution(current_hour)
+    spawn_rate = TrafficConfig.get_spawn_rate()
+    congestion = TrafficConfig.get_congestion_params()
+    
+    return {
+        "current_hour": current_hour,
+        "current_minute": sim_time["minute"],
+        "time_string": sim_time["time_string"],
+        "time_period": time_period,
+        "time_scale": sim_time["time_scale"],
+        "speed_distribution": speed_dist,
+        "vehicle_distribution": vehicle_dist,
+        "spawn_rate": spawn_rate,
+        "congestion": congestion
+    }
+
+
 # Get the shortest path
 @app.get("/path")
 def get_path(start: str, goal: str, mode: str):
@@ -64,7 +93,8 @@ def get_path(start: str, goal: str, mode: str):
         traffic_multipliers,
         start,
         goal,
-        mode
+        mode,
+        blocked_roads=set(simulator.blocked_roads.keys())
     )
 
     # Handle infinity cost (no path found)
@@ -262,9 +292,47 @@ def get_traffic_statistics():
     vehicle_stats = simulator.vehicle_manager.get_statistics()
     traffic_stats = simulator.traffic_analyzer.get_global_statistics()
     
+    # Calculate actual speed distribution from active vehicles
+    active_vehicles = simulator.vehicle_manager.get_active_vehicles()
+    speed_stats = {
+        "car": {"speeds": [], "count": 0},
+        "bicycle": {"speeds": [], "count": 0},
+        "pedestrian": {"speeds": [], "count": 0}
+    }
+    
+    for vehicle in active_vehicles:
+        v_type = vehicle.type.value
+        if v_type in speed_stats:
+            # Convert to km/h for display
+            speed_kmh = vehicle.current_speed * 3.6
+            speed_stats[v_type]["speeds"].append(round(speed_kmh, 1))
+            speed_stats[v_type]["count"] += 1
+    
+    # Calculate statistics for each type
+    speed_distribution = {}
+    for v_type, data in speed_stats.items():
+        if data["count"] > 0:
+            speeds = data["speeds"]
+            speed_distribution[v_type] = {
+                "count": data["count"],
+                "min": round(min(speeds), 1),
+                "max": round(max(speeds), 1),
+                "avg": round(sum(speeds) / len(speeds), 1),
+                "samples": speeds[:100]  # First 100 samples for display
+            }
+        else:
+            speed_distribution[v_type] = {
+                "count": 0,
+                "min": 0,
+                "max": 0,
+                "avg": 0,
+                "samples": []
+            }
+    
     return {
         "vehicle_statistics": vehicle_stats,
-        "traffic_statistics": traffic_stats
+        "traffic_statistics": traffic_stats,
+        "speed_distribution": speed_distribution
     }
 
 
