@@ -1,0 +1,67 @@
+{
+  "speed_kmh": {
+    "car": {"mean": 63.5, "std_dev": 17.02, "min": 0, "max": 100},
+    "bicycle": {"mean": 25.0, "std_dev": 8.0, "min": 5, "max": 40},
+    "pedestrian": {"mean": 5.0, "std_dev": 1.5, "min": 2, "max": 8}
+  },
+  "congestion": {
+    "mean": 0.425,
+    "std_dev": 0.2,
+    "peak_hours": [9, 10, 17, 18],
+    "peak_multiplier": 2.0
+  },
+  "accidents": {
+    "rate_per_hour": 5,
+    "severity_distribution": {
+      "minor": 0.70,
+      "moderate": 0.25,
+      "severe": 0.05
+    },
+    "duration_minutes": {
+      "mean": 45,
+      "std_dev": 20,
+      "min": 10,
+      "max": 120
+    }
+  },
+  "blockages": {
+    "rate_per_hour": 3,
+    "duration_minutes": {
+      "mean": 30,
+      "std_dev": 15,
+      "min": 5,
+      "max": 90
+    }
+  },
+  "vehicle_distribution": {
+    "morning_rush": {
+      "hours": [7, 8, 9],
+      "car": 0.70,
+      "bicycle": 0.10,
+      "pedestrian": 0.20
+    },
+    "midday": {
+      "hours": [10, 11, 12, 13, 14, 15, 16],
+      "car": 0.40,
+      "bicycle": 0.30,
+      "pedestrian": 0.30
+    },
+    "evening_rush": {
+      "hours": [17, 18, 19],
+      "car": 0.75,
+      "bicycle": 0.05,
+      "pedestrian": 0.20
+    },
+    "night": {
+      "hours": [20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6],
+      "car": 0.85,
+      "bicycle": 0.05,
+      "pedestrian": 0.10
+    }
+  },
+  "spawn_rate": {
+    "vehicles_per_minute_mean": 25,
+    "vehicles_per_minute_std_dev": 5.6,
+    "off_peak_multiplier": 0.4
+  }
+}

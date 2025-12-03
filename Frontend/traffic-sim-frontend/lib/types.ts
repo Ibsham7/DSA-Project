@@ -126,12 +126,37 @@ export interface TrafficStatistics {
   }>;
 }
 
+export interface SpeedDistributionStats {
+  car: {
+    count: number;
+    min: number;
+    max: number;
+    avg: number;
+    samples: number[];
+  };
+  bicycle: {
+    count: number;
+    min: number;
+    max: number;
+    avg: number;
+    samples: number[];
+  };
+  pedestrian: {
+    count: number;
+    min: number;
+    max: number;
+    avg: number;
+    samples: number[];
+  };
+}
+
 export interface SimulationState {
   step: number;
   is_running: boolean;
   vehicles: Vehicle[];
   vehicle_statistics: VehicleStatistics;
   traffic_statistics: TrafficStatistics;
+  speed_distribution?: SpeedDistributionStats;
   edge_traffic: EdgeTrafficData[];
   traffic_multipliers: Record<string, number>;
   total_spawned: number;
