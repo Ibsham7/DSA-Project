@@ -1,6 +1,3 @@
-# multi_vehicle_simulator.py
-# Multi-vehicle traffic simulation engine
-# Implements realistic traffic flow with multiple vehicles, dynamic routing, and congestion
 
 import random
 import time
@@ -697,11 +694,8 @@ class MultiVehicleSimulator:
             ahead_vehicle = None
             min_distance = float('inf')
             
-            for other_id in vehicles_on_edge:
-                if other_id == vehicle.id:
-                    continue
-                other = self.vehicle_manager.get_vehicle(other_id)
-                if not other:
+            for other in vehicles_on_edge:
+                if other.id == vehicle.id:
                     continue
                     
                 # Check if other vehicle is ahead

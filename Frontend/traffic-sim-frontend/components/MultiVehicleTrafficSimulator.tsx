@@ -2,13 +2,11 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import MultiVehicleMapVisualization from './MultiVehicleMapVisualization';
-import TrafficStatsDashboard from './TrafficStatsDashboard';
 import TrafficControlPanel from './TrafficControlPanel';
 import SpeedDistributionChart from './SpeedDistributionChart';
 import { api } from '@/lib/api';
 import { 
   Vehicle, 
-  VehicleType, 
   VehicleStatistics, 
   TrafficStatistics, 
   EdgeTrafficData,
@@ -83,13 +81,14 @@ const MultiVehicleTrafficSimulator: React.FC = () => {
         await refreshTrafficControlData();
         
         // No manual spawn needed - backend auto-spawns based on real dataset config
-      } catch (err) {
+      } catch {
         setApiStatus('disconnected');
         setError('Failed to connect to backend API. Make sure the server is running on http://localhost:8000');
       }
     };
 
     initializeApp();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Auto-simulation loop
@@ -114,6 +113,7 @@ const MultiVehicleTrafficSimulator: React.FC = () => {
     }, simulationSpeed);
 
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRunning, apiStatus, simulationSpeed]);
 
   // Refresh simulation state
@@ -161,7 +161,7 @@ const MultiVehicleTrafficSimulator: React.FC = () => {
       setMapData(fetchedMapData);
       
       await handleResetSimulation();
-    } catch (err) {
+    } catch {
       setError('Failed to switch map');
     } finally {
       setLoading(false);
@@ -187,7 +187,7 @@ const MultiVehicleTrafficSimulator: React.FC = () => {
     try {
       await api.resetSimulation();
       await refreshSimulationState();
-    } catch (err) {
+    } catch {
       setError('Failed to reset simulation');
     } finally {
       setLoading(false);
@@ -200,7 +200,7 @@ const MultiVehicleTrafficSimulator: React.FC = () => {
       await api.simulationTick();
       await refreshSimulationState();
       await refreshTrafficControlData();
-    } catch (err) {
+    } catch {
       setError('Failed to execute tick');
     } finally {
       setLoading(false);
@@ -212,7 +212,7 @@ const MultiVehicleTrafficSimulator: React.FC = () => {
     try {
       await api.createAccident(fromNode, toNode);
       await refreshTrafficControlData();
-    } catch (err) {
+    } catch {
       setError('Failed to create accident');
     }
   };
@@ -221,7 +221,7 @@ const MultiVehicleTrafficSimulator: React.FC = () => {
     try {
       await api.resolveAccident(accidentId);
       await refreshTrafficControlData();
-    } catch (err) {
+    } catch {
       setError('Failed to resolve accident');
     }
   };
@@ -230,7 +230,7 @@ const MultiVehicleTrafficSimulator: React.FC = () => {
     try {
       await api.blockRoad(fromNode, toNode, reason);
       await refreshTrafficControlData();
-    } catch (err) {
+    } catch {
       setError('Failed to block road');
     }
   };
@@ -239,7 +239,7 @@ const MultiVehicleTrafficSimulator: React.FC = () => {
     try {
       await api.unblockRoad(fromNode, toNode);
       await refreshTrafficControlData();
-    } catch (err) {
+    } catch {
       setError('Failed to unblock road');
     }
   };
@@ -447,7 +447,26 @@ const MultiVehicleTrafficSimulator: React.FC = () => {
                 <div className="h-full overflow-auto">
                   <SpeedDistributionChart
                     speedConfig={trafficConfig.speed_distribution}
-                    liveSpeedStats={simulationState?.speed_distribution}
+                    liveSpeedStats={simulationState?.speed_distribution ? {
+                      car: simulationState.speed_distribution.car.count > 0 ? {
+                        count: simulationState.speed_distribution.car.count,
+                        avg_speed: simulationState.speed_distribution.car.avg,
+                        min_speed: simulationState.speed_distribution.car.min,
+                        max_speed: simulationState.speed_distribution.car.max
+                      } : undefined,
+                      bicycle: simulationState.speed_distribution.bicycle.count > 0 ? {
+                        count: simulationState.speed_distribution.bicycle.count,
+                        avg_speed: simulationState.speed_distribution.bicycle.avg,
+                        min_speed: simulationState.speed_distribution.bicycle.min,
+                        max_speed: simulationState.speed_distribution.bicycle.max
+                      } : undefined,
+                      pedestrian: simulationState.speed_distribution.pedestrian.count > 0 ? {
+                        count: simulationState.speed_distribution.pedestrian.count,
+                        avg_speed: simulationState.speed_distribution.pedestrian.avg,
+                        min_speed: simulationState.speed_distribution.pedestrian.min,
+                        max_speed: simulationState.speed_distribution.pedestrian.max
+                      } : undefined
+                    } : undefined}
                   />
                 </div>
               )

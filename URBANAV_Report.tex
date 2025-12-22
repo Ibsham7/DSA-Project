@@ -1,0 +1,242 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{listings}
+\usepackage{xcolor}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=blue,
+  citecolor=blue
+}
+
+\lstdefinestyle{code}{
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue},
+  commentstyle=\color{gray},
+  stringstyle=\color{teal},
+  showstringspaces=false,
+  breaklines=true,
+  frame=single,
+  rulecolor=\color{black!20},
+  tabsize=2
+}
+\lstset{style=code}
+
+\title{\textbf{URBANAV}\\
+\large Multi-Vehicle Traffic Simulation System\\
+\large DSA Project Report}
+
+\author{%
+Abbad Ul Hassan\\
+Ibsham Tariq\\
+Abdul Wasay
+}
+
+\date{December 21, 2025}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+URBANAV is a multi-vehicle traffic simulation system that models an urban road network as a graph (nodes and edges) and simulates the movement of multiple vehicle types (cars, bicycles, pedestrians). Vehicles route using the A* pathfinding algorithm with a Euclidean heuristic. Unlike static routing, edge costs change dynamically based on congestion, accidents, and road blockages, so routes can be recalculated during the simulation. The backend is built with FastAPI (Python) and exposes REST endpoints, while a Next.js frontend visualizes vehicles and traffic conditions in real time.
+\end{abstract}
+
+\section{Introduction}
+Urban traffic is influenced by road capacity, congestion buildup, and unpredictable incidents. The goal of URBANAV is to simulate these behaviors in a simplified but realistic way:
+\begin{itemize}
+  \item Model roads as a weighted graph (nodes = intersections/locations, edges = roads).
+  \item Route vehicles using A* with a Euclidean heuristic.
+  \item Update road cost over time using congestion analysis.
+  \item Trigger and resolve incidents (accidents, blockages) to force rerouting.
+  \item Provide real-time visualization through a web interface.
+\end{itemize}
+
+\section{System Architecture}
+URBANAV uses a two-tier architecture:
+
+\subsection{Backend (Python + FastAPI)}
+Core responsibilities:
+\begin{itemize}
+  \item Load maps (JSON) into a graph structure.
+  \item Spawn vehicles and compute initial A* routes.
+  \item Execute the simulation tick loop (movement, congestion update, rerouting).
+  \item Manage incidents (accidents, blocked roads).
+  \item Serve simulation state and analytics via REST endpoints.
+\end{itemize}
+
+Key backend modules:
+\begin{itemize}
+  \item \texttt{api.py}: REST API endpoints and global simulator instance.
+  \item \texttt{multi\_vehicle\_simulator.py}: main simulation engine.
+  \item \texttt{vehicle.py}: vehicle entity + \texttt{VehicleManager} state indexing.
+  \item \texttt{pathfinder.py}: A* implementation.
+  \item \texttt{traffic\_analyzer.py}: congestion model + traffic multipliers.
+  \item \texttt{traffic\_config.json}: statistical config (speeds, rates, durations).
+\end{itemize}
+
+\subsection{Frontend (Next.js + React + TypeScript)}
+Core responsibilities:
+\begin{itemize}
+  \item Call backend endpoints on an interval (polling).
+  \item Render the graph, vehicles, congestion colors, and incident markers.
+  \item Provide controls for spawning vehicles and managing incidents.
+\end{itemize}
+
+\section{Data Model and Key Data Structures}
+\subsection{Graph Representation}
+The map is loaded from JSON into:
+\begin{itemize}
+  \item \textbf{Adjacency list:} \texttt{graph[node] = list of outgoing edges}
+  \item \textbf{Coordinates:} \texttt{heuristic\_coords[node] = (x,y)} for A* heuristic
+\end{itemize}
+
+Each edge stores:
+\begin{itemize}
+  \item \texttt{to}: destination node
+  \item \texttt{distance}: base weight
+  \item \texttt{allowed}: list of allowed modes (car/bicycle/pedestrian)
+  \item \texttt{one\_way}: directional constraint
+\end{itemize}
+
+\subsection{Traffic Multipliers (Dynamic Edge Weights)}
+Traffic conditions are stored as:
+\[
+\texttt{traffic\_multipliers}[(u,v)] \rightarrow m
+\]
+The effective edge cost used by A* becomes:
+\[
+\text{cost}(u,v) = \text{distance}(u,v) \times m(u,v)
+\]
+
+\subsection{Vehicle State}
+Each vehicle stores:
+\begin{itemize}
+  \item Identity: \texttt{id}, \texttt{type}
+  \item Route: \texttt{path} (list of nodes), \texttt{path\_index}, \texttt{next\_node}
+  \item Motion: \texttt{position\_on\_edge} $\in [0,1]$, \texttt{current\_speed}, \texttt{target\_speed}
+  \item Status: moving / stuck / rerouting / arrived
+\end{itemize}
+
+\subsection{Edge Occupancy (Who is on which road)}
+The simulator maintains:
+\[
+\texttt{edge\_occupancy}[(u,v)] \rightarrow [\text{vehicle\_id}_1,\dots]
+\]
+This enables fast queries such as ``which vehicles share this edge?'' for congestion and car-following behavior.
+
+\section{Core Algorithms}
+\subsection{A* Pathfinding}
+A* finds a least-cost path using:
+\[
+f(n)=g(n)+h(n)
+\]
+where:
+\begin{itemize}
+  \item $g(n)$ = cost from start to node $n$ (dynamic, uses traffic multipliers)
+  \item $h(n)$ = Euclidean distance heuristic to the goal
+\end{itemize}
+
+\subsection{Why A* is Dynamic in URBANAV}
+A* becomes dynamic because:
+\begin{itemize}
+  \item Traffic multipliers update every simulation tick based on congestion.
+  \item Accidents increase the multiplier of a specific edge by a severity factor.
+  \item Blockages set an edge cost extremely high and the pathfinder also skips blocked edges.
+  \item Vehicles reroute by re-running A* when upcoming edges are blocked or predicted to be congested.
+\end{itemize}
+
+\subsection{Congestion Modeling}
+Congestion is derived from edge density:
+\[
+\text{density}(u,v) = \frac{\text{usage}(u,v)}{\text{capacity}(u,v)}
+\]
+Capacity scales with distance, and usage is computed from how many vehicles occupy an edge (weighted by vehicle type). The analyzer assigns a congestion level and samples a multiplier from a range.
+
+\subsection{Physics-Style Movement and Position on Edge}
+Movement is continuous rather than node-to-node jumps. Each tick:
+\begin{align*}
+\text{distance\_moved} &= \texttt{current\_speed} \times \Delta t \\
+\Delta \texttt{position\_on\_edge} &= \frac{\text{distance\_moved}}{\texttt{edge\_length}} \\
+\texttt{position\_on\_edge} &\leftarrow \texttt{clamp}(\texttt{position\_on\_edge}+\Delta \texttt{position\_on\_edge}, 0, 1)
+\end{align*}
+If \texttt{position\_on\_edge} reaches 1.0, the vehicle transitions to the next node and begins the next edge.
+
+\subsection{Car-Following: Detecting the Vehicle Ahead}
+For a vehicle on edge $(u,v)$:
+\begin{itemize}
+  \item Get all vehicles currently on $(u,v)$ using edge occupancy.
+  \item A vehicle is ``ahead'' if it has a larger \texttt{position\_on\_edge}.
+  \item The closest ahead vehicle is the one with the smallest positive difference:
+  \[
+  \Delta = \texttt{other.position\_on\_edge} - \texttt{self.position\_on\_edge}
+  \]
+  \item Convert this into pixels using \texttt{edge\_length} and reduce target speed.
+\end{itemize}
+
+\section{Simulation Tick: Step-by-Step Flow}
+A \textbf{simulation tick} is one update step of the world (similar to a game frame). In each tick, the simulator:
+\begin{enumerate}
+  \item Computes $\Delta t$ (time since last tick), with a maximum cap for stability.
+  \item Optionally spawns vehicles based on a statistical spawn rate.
+  \item Randomly creates accidents and blockages based on per-hour rates.
+  \item Auto-resolves incidents when their duration expires.
+  \item Updates traffic multipliers using current vehicle distribution (congestion).
+  \item \textbf{Pass 1 (decision pass):} checks blocked edges and ``vehicle ahead'' to set target speeds.
+  \item \textbf{Pass 2 (movement pass):} updates vehicle positions and node transitions.
+  \item Updates edge occupancy for the next tick.
+\end{enumerate}
+
+\paragraph{Why two passes?}
+Two passes prevent inconsistent behavior. If vehicles were moved one-by-one while checking ``ahead'' in the same loop, early vehicles could move and affect later decisions within the same tick. Pass 1 decides speeds based on a consistent snapshot; Pass 2 applies movement afterward.
+
+\section{Incidents: Accidents and Blockages}
+\subsection{Duration Source}
+Incident durations are sampled from \texttt{traffic\_config.json}.
+\begin{itemize}
+  \item Accident duration is sampled in minutes (normal distribution), clamped to min/max, then converted to seconds.
+  \item Blockage duration uses the same method with different parameters.
+\end{itemize}
+
+\subsection{Selecting the Affected Edge}
+If not specified by the user/API:
+\begin{itemize}
+  \item Pick a random \texttt{from\_node} from the graph.
+  \item Pick a random outgoing edge from that node to get \texttt{to\_node}.
+\end{itemize}
+
+\subsection{Auto-Resolution}
+Each tick, the simulator checks:
+\[
+\texttt{now} - \texttt{created\_at} > \texttt{duration}
+\]
+If true, the incident is removed:
+\begin{itemize}
+  \item Accidents: restore multiplier by dividing the severity factor.
+  \item Blockages: delete blocked edge record and restore default multiplier.
+\end{itemize}
+
+\section{How to Run}
+\subsection{Backend}
+\begin{lstlisting}[language=bash]
+cd Backend
+pip install fastapi uvicorn
+uvicorn api:app --reload
+\end{lstlisting}
+
+\subsection{Frontend}
+\begin{lstlisting}[language=bash]
+cd Frontend/traffic-sim-frontend
+npm install
+npm run dev
+\end{lstlisting}
+
+\section{Conclusion}
+URBANAV demonstrates practical use of graphs, priority queues, and A* pathfinding in a dynamic environment. By updating edge costs every tick based on congestion and incidents, the routing becomes adaptive. The full system is presented end-to-end through a REST backend and a real-time interactive web visualization.
+
+\end{document}
